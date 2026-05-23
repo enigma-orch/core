@@ -42,6 +42,7 @@ from app.repositories.outfit import OutfitRepository
 from app.schemas.shuffle import EventContext, ShuffleResponse, ShuffleSuggestion
 from app.schemas.wardrobe import ItemOut
 from app.services import google_calendar as gcal_svc
+from app.services import spotify as spotify_svc
 from app.services.jwt import get_current_user_id_verified
 from app.services.shuffle import (
     build_candidates,
@@ -182,14 +183,26 @@ async def shuffle_outfits(
                 break
 
     spotify_track_tuples = None
-    if user.spotify_id:
+    genre_vibes: list[str] | None = None
+    audio_profile = None
+    if user.spotify_id and user.spotify_access_token:
         spotify_track_tuples = await _spotify_tracks(db, user_uuid)
+        try:
+            token = await spotify_svc.ensure_fresh_token(user, db)
+            taste_profile = await spotify_svc.build_taste_profile(token)
+            if taste_profile:
+                genre_vibes = spotify_svc.genres_to_vibes(taste_profile.top_genres)
+                audio_profile = taste_profile.audio_profile
+        except Exception as exc:
+            logger.warning("Spotify taste profile fetch failed for user %s: %s", user_uuid, exc)
 
     candidates = build_candidates(
         items=seasonal_items,
         taste=taste,
         target_occasion=target_occasion,
         limit=limit,
+        genre_vibes=genre_vibes,
+        audio_profile=audio_profile,
     )
 
     suggestions = []

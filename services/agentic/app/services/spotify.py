@@ -5,11 +5,15 @@ import base64
 import time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from app.config import settings
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from app.models.user import User
 
 _AUDIO_FEATURES_TTL = 24 * 3600  # audio features never change for a track
 
@@ -127,3 +131,125 @@ async def get_audio_features(access_token: str, track_ids: list[str]) -> list[di
             out_map[f["id"]] = f
 
     return [out_map.get(tid) for tid in track_ids if out_map.get(tid)]
+
+
+# ── Token management ──────────────────────────────────────────────────────────
+
+async def ensure_fresh_token(user: "User", db: "AsyncSession") -> str:
+    """Return a valid access token, refreshing via Spotify if it has expired.
+
+    Updates user.spotify_access_token and user.spotify_token_expires_at in the
+    DB session (caller must commit or flush).
+    """
+    now = datetime.now(timezone.utc)
+    expires_at = user.spotify_token_expires_at
+    token_is_stale = expires_at is None or expires_at <= now
+
+    if token_is_stale and user.spotify_refresh_token:
+        data = await refresh_access_token(user.spotify_refresh_token)
+        user.spotify_access_token = data["access_token"]
+        user.spotify_token_expires_at = token_expires_at(data.get("expires_in", 3600))
+        if data.get("refresh_token"):
+            user.spotify_refresh_token = data["refresh_token"]
+        await db.flush()
+
+    return user.spotify_access_token
+
+
+# ── Playlist fetching ─────────────────────────────────────────────────────────
+
+async def get_user_playlists(access_token: str, limit: int = 20) -> list[dict[str, Any]]:
+    """Fetch the user's saved/followed playlists from Spotify.
+
+    Returns a list of playlist objects with at least:
+      id, name, tracks.total, images[]
+    """
+    pass  # TODO
+
+
+# ── Top tracks & artists ──────────────────────────────────────────────────────
+
+async def get_top_tracks(
+    access_token: str,
+    time_range: str = "short_term",
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Fetch the user's top tracks from Spotify.
+
+    time_range: "short_term" (~4 weeks), "medium_term" (~6 months), "long_term" (all time).
+    Each item includes id, name, artists[], album, and audio features are fetched
+    separately via get_audio_features().
+    """
+    pass  # TODO
+
+
+async def get_top_artists(
+    access_token: str,
+    time_range: str = "short_term",
+    limit: int = 10,
+) -> list[dict[str, Any]]:
+    """Fetch the user's top artists from Spotify.
+
+    Each item includes id, name, genres[], popularity.
+    genres[] is the main signal used to map music taste → style vibes in the
+    shuffle engine.
+    """
+    pass  # TODO
+
+
+# ── Taste profile assembly ────────────────────────────────────────────────────
+
+async def build_taste_profile(access_token: str) -> "SpotifyTasteProfile":
+    """Aggregate playlists, top tracks, top artists, and audio features into a
+    single SpotifyTasteProfile that shuffle and outfit compose can consume.
+
+    Steps (all best-effort — individual failures return empty lists/None):
+    1. get_user_playlists     → PlaylistSummary[]
+    2. get_top_tracks         → TrackSummary[] + audio features via get_audio_features()
+    3. get_top_artists        → deduplicated genre list
+    4. Average the audio features → AudioProfile
+    """
+    from app.schemas.spotify import AudioProfile, SpotifyTasteProfile
+
+    pass  # TODO
+
+
+# ── Taste → style mapping (used by shuffle scoring) ──────────────────────────
+
+# Maps Spotify artist genres to the style vibe vocabulary used in Item.vibe.
+# Extend this table as more genre→vibe relationships are identified.
+GENRE_TO_VIBE: dict[str, str] = {
+    "hip hop": "streetwear",
+    "rap": "streetwear",
+    "trap": "streetwear",
+    "r&b": "bold",
+    "soul": "elegant",
+    "jazz": "elegant",
+    "classical": "formal",
+    "pop": "minimal",
+    "indie pop": "minimal",
+    "electronic": "edgy",
+    "techno": "edgy",
+    "house": "sporty",
+    "dance pop": "sporty",
+    "country": "casual",
+    "folk": "casual",
+    "rock": "edgy",
+    "metal": "edgy",
+    "latin": "bold",
+    "reggaeton": "bold",
+}
+
+
+def genres_to_vibes(genres: list[str]) -> list[str]:
+    """Map a list of Spotify artist genres to style vibes.
+
+    Returns deduplicated vibes in order of frequency.
+    """
+    counts: dict[str, int] = {}
+    for g in genres:
+        gl = g.lower()
+        for keyword, vibe in GENRE_TO_VIBE.items():
+            if keyword in gl:
+                counts[vibe] = counts.get(vibe, 0) + 1
+    return sorted(counts, key=lambda v: -counts[v])

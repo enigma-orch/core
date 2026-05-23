@@ -1,5 +1,11 @@
 """Shuffle service — suggest outfit combinations from the user's wardrobe.
 
+Music-taste integration points (stubs — wired up once Spotify taste profile is live):
+- music_taste_boost(): extra score delta applied per candidate based on genre→vibe match
+  and audio-profile energy level.
+- build_candidates() will accept an optional SpotifyTasteProfile and call
+  music_taste_boost() per candidate before final ranking.
+
 Pure Python: no LLM, no image generation. The endpoint returns groups of
 item IDs ranked by how well they match the user's taste vector and the
 requested occasion. The client (or another route) can pipe those IDs into
@@ -18,8 +24,12 @@ import itertools
 import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from typing import TYPE_CHECKING
 
 from app.models.item import Item
+
+if TYPE_CHECKING:
+    from app.schemas.spotify import AudioProfile
 
 # Combinatorial blow-up guards.
 _PER_CATEGORY_CAP = 8
@@ -129,6 +139,8 @@ def build_candidates(
     taste: list[float] | None,
     target_occasion: str | None,
     limit: int,
+    genre_vibes: list[str] | None = None,
+    audio_profile: "AudioProfile | None" = None,
 ) -> list[ShuffleCandidate]:
     """Assemble top-K outfit candidates.
 
@@ -174,7 +186,12 @@ def build_candidates(
         sim = _cosine(cand_emb, taste) if taste else 0.0
         occ = _occasion_match(embellished, target_occasion)
         rec = _recency_penalty(embellished)
-        score = 0.6 * sim + 0.3 * occ - 0.1 * rec
+        music = music_taste_boost(
+            ShuffleCandidate(item_ids=tuple(str(i.id) for i in embellished), items=embellished, score=0.0),
+            genre_vibes,
+            audio_profile,
+        ) or 0.0
+        score = 0.6 * sim + 0.3 * occ - 0.1 * rec + music
 
         candidates.append(
             ShuffleCandidate(
@@ -322,6 +339,28 @@ def suggest_song(
     mood_key = (mood or "unknown").lower()
     track, artist = _MOOD_SONGS.get(mood_key, _MOOD_SONGS["unknown"])
     return f"{track} — {artist}"
+
+
+# ── Music-taste scoring ───────────────────────────────────────────────────────
+
+def music_taste_boost(
+    candidate: "ShuffleCandidate",
+    genre_vibes: list[str] | None,
+    audio_profile: "AudioProfile | None",
+) -> float:
+    """Extra score delta (0.0–0.15) for a candidate that aligns with the user's
+    current Spotify music taste.
+
+    genre_vibes:   output of spotify_svc.genres_to_vibes() — ordered list of
+                   style vibes derived from the user's top Spotify artists.
+    audio_profile: averaged valence/energy/danceability from top tracks.
+                   High energy → prefer bold/sporty vibes.
+                   High valence → prefer fresh/minimal vibes.
+
+    Integration in build_candidates():
+        score = 0.6 * sim + 0.3 * occ - 0.1 * rec + music_taste_boost(...)
+    """
+    pass  # TODO
 
 
 _EVENT_KEYWORDS: list[tuple[tuple[str, ...], str]] = [

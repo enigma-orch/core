@@ -21,8 +21,10 @@ from app.models.outfit import Outfit
 from app.models.outfit_item import OutfitItem
 from app.models.spotify import SpotifyTrack
 from app.models.user import User
+from app.schemas.spotify import SpotifyTasteProfile
 from app.schemas.wardrobe import ItemOut, OutfitComposeOut, OutfitComposeRequest
 from app.services import embeddings as emb_svc
+from app.services import spotify as spotify_svc
 from app.services import weather as weather_svc
 from app.services.jwt import get_current_user_id
 
@@ -103,7 +105,12 @@ async def _spotify_snapshot(db: AsyncSession, user_id: uuid.UUID) -> dict | None
     }
 
 
-def _context_prompt_block(weather_str: str | None, mood: str | None, spotify: dict | None) -> str:
+def _context_prompt_block(
+    weather_str: str | None,
+    mood: str | None,
+    spotify: dict | None,
+    taste_profile: SpotifyTasteProfile | None = None,
+) -> str:
     parts: list[str] = []
     if weather_str:
         parts.append(f"Weather context: {weather_str}.")
@@ -114,6 +121,18 @@ def _context_prompt_block(weather_str: str | None, mood: str | None, spotify: di
             f"{t['track']} by {t['artist']}" for t in spotify["recent_tracks"][:2]
         )
         parts.append(f"Soundtrack: {names}.")
+    if taste_profile:
+        if taste_profile.top_genres:
+            parts.append(f"Music genres: {', '.join(taste_profile.top_genres[:5])}.")
+        ap = taste_profile.audio_profile
+        if ap.avg_energy is not None:
+            energy_label = "high-energy" if ap.avg_energy >= 0.6 else ("mellow" if ap.avg_energy <= 0.35 else "mid-tempo")
+            parts.append(f"Current listening energy: {energy_label}.")
+        if taste_profile.top_tracks:
+            track_names = ", ".join(
+                f"{t.name} by {', '.join(t.artists)}" for t in taste_profile.top_tracks[:2]
+            )
+            parts.append(f"Currently into: {track_names}.")
     if not parts:
         return ""
     return "\n\nADDITIONAL CONTEXT (use to inform styling — do NOT change identity):\n" + " ".join(parts)
@@ -155,9 +174,17 @@ async def compose_outfit(
     mood = user.mood.value if user and user.mood else None
     spotify_snapshot = await _spotify_snapshot(db, user_id)
 
+    taste_profile: SpotifyTasteProfile | None = None
+    if user and user.spotify_id and user.spotify_access_token:
+        try:
+            token = await spotify_svc.ensure_fresh_token(user, db)
+            taste_profile = await spotify_svc.build_taste_profile(token)
+        except Exception as exc:
+            logger.warning("Spotify taste profile unavailable for user %s: %s", user_id, exc)
+
     # 3. Build ground-truth item descriptions from DB to anchor the image generator
     items_description = build_items_description(items)
-    items_description += _context_prompt_block(weather_str, mood, spotify_snapshot)
+    items_description += _context_prompt_block(weather_str, mood, spotify_snapshot, taste_profile)
 
     # 4. Generate virtual try-on image: user photo + item images + metadata → wan2.7-image
     bg_color = pick_background_color(meta.get("vibe"), meta.get("occasion"))

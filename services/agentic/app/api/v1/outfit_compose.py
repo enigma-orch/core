@@ -12,6 +12,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents.outfit_agent import generate_outfit_image
+from app.services.outfit_preview import build_items_description
+from app.services.shuffle import pick_background_color
 from app.infrastructure.database import get_db
 from app.infrastructure.storage import upload_file
 from app.models.item import Item
@@ -67,27 +69,6 @@ def _derive_metadata(items: list[Item]) -> dict:
         "occasion": occasion or "casual",
     }
 
-
-def _build_items_description(items: list[Item]) -> str:
-    """
-    Build a structured, ground-truth description of each item from DB metadata.
-    This is injected into the image generation prompt to prevent hallucination.
-    """
-    lines = []
-    for i, item in enumerate(items, start=1):
-        colors = ", ".join(item.colors or []) or "unknown color"
-        tags = ", ".join(item.style_tags or [])
-        parts = [
-            f"Item {i}: {item.name or item.category}",
-            f"  category: {item.category}",
-            f"  subcategory: {item.subcategory or 'N/A'}",
-            f"  colors: {colors}",
-            f"  pattern: {item.pattern or 'solid'}",
-            f"  fit/style: {tags or 'N/A'}",
-            f"  vibe: {item.vibe or 'N/A'}",
-        ]
-        lines.append("\n".join(parts))
-    return "\n\n".join(lines)
 
 
 def _outfit_embed_text(meta: dict, items: list[Item]) -> str:
@@ -175,12 +156,13 @@ async def compose_outfit(
     spotify_snapshot = await _spotify_snapshot(db, user_id)
 
     # 3. Build ground-truth item descriptions from DB to anchor the image generator
-    items_description = _build_items_description(items)
+    items_description = build_items_description(items)
     items_description += _context_prompt_block(weather_str, mood, spotify_snapshot)
 
     # 4. Generate virtual try-on image: user photo + item images + metadata → wan2.7-image
+    bg_color = pick_background_color(meta.get("vibe"), meta.get("occasion"))
     try:
-        image_bytes = await generate_outfit_image(body.user_image_url, item_image_urls, items_description)
+        image_bytes = await generate_outfit_image(body.user_image_url, item_image_urls, items_description, bg_color)
     except Exception as exc:
         raise HTTPException(status_code=500, detail={"error": "Image generation failed", "detail": str(exc)})
 

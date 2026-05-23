@@ -5,13 +5,13 @@ FastAPI wardrobe AI app — Gemini 2.0 Flash vision, pgvector embeddings, remove
 ## Local Development
 
 Shared infrastructure (Postgres + pgvector, RustFS, Redis, optional Neo4j) and
-the database migrations live in [`../../infra`](../../infra). This service connects
+the database migrations live in [`../infra`](../infra). This service connects
 to the Postgres and object store they bring up. The FastAPI app runs directly
 on localhost.
 
 ```bash
 # 1. Start infrastructure
-make infra-up                  # alias for: make -C ../../infra up
+make infra-up                  # alias for: make -C ../infra up
 
 # 2. Install dependencies
 make install
@@ -19,8 +19,8 @@ make install
 # 3. Copy and fill in your env
 cp .env.example .env
 
-# 4. Apply migrations (delegates to ../../infra)
-make migrate                   # alias for: make -C ../../infra db-up
+# 4. Apply migrations (delegates to ../infra)
+make migrate                   # alias for: make -C ../infra db-up
 
 # 5. Start the app
 make run
@@ -31,16 +31,16 @@ The app is available at `http://localhost:8000`. Docs at `http://localhost:8000/
 ## Database
 
 This service no longer ships migrations or a schema file. Everything lives in
-[`../../infra/db/`](../../infra/db). To add a new migration:
+[`../infra/db/`](../infra/db). To add a new migration:
 
 ```bash
-make -C ../../infra db-new name=my_change
-$EDITOR ../../infra/db/migrations/<ts>_my_change.sql
-make -C ../../infra db-up
-make -C ../../infra db-dump        # refresh ../../infra/db/schema.sql
+make -C ../infra db-new name=my_change
+$EDITOR ../infra/db/migrations/<ts>_my_change.sql
+make -C ../infra db-up
+make -C ../infra db-dump        # refresh ../infra/db/schema.sql
 ```
 
-See [`../../infra/README.md`](../../infra/README.md) for the full source-of-truth
+See [`../infra/README.md`](../infra/README.md) for the full source-of-truth
 rules and the table ownership matrix.
 
 ## Environment Variables

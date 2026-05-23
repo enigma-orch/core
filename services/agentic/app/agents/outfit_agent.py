@@ -57,7 +57,7 @@ def _ensure_min_size(img_bytes: bytes, mime: str) -> tuple[bytes, str]:
 
 
 @tool
-def generate_image(user_image_url: str, item_image_urls: str, items_description: str) -> str:
+def generate_image(user_image_url: str, item_image_urls: str, items_description: str, background_color: str) -> str:
     """
     Generate a virtual try-on image.
 
@@ -69,13 +69,14 @@ def generate_image(user_image_url: str, item_image_urls: str, items_description:
         user_image_url: URL of the user's photo.
         item_image_urls: Comma-separated URLs of the clothing item images.
         items_description: Structured description of each item from the DB.
+        background_color: Hex color code for the solid background (e.g. "#FAFAFA").
 
     Returns:
         'ok' on success, or an error string on failure.
     """
     global _image_result
     _image_result = None
-    logger.info("generate_image tool called: user=%s items=%s", user_image_url, item_image_urls[:80])
+    logger.info("generate_image tool called: user=%s items=%s bg=%s", user_image_url, item_image_urls[:80], background_color)
 
     api_key = settings.qwen_wan_api_key or settings.qwen_api_key
 
@@ -109,11 +110,14 @@ def generate_image(user_image_url: str, item_image_urls: str, items_description:
             f"{items_description}\n\n"
             "INSTRUCTIONS:\n"
             "1. Keep the person's face, skin tone, hair, body proportions, and pose identical to Image 1.\n"
-            "2. Replace ONLY the clothing. Do not change the background unless it is plain.\n"
+            "2. Replace ONLY the clothing.\n"
             "3. Render each item exactly as shown in its reference image AND as described above "
             "(correct color, fit, silhouette, texture, pattern). Do not invent or substitute any item.\n"
             "4. Ensure all items fit naturally on the person's body — correct layering, proportions, and drape.\n"
-            "5. Output: photorealistic full-body fashion portrait, soft studio lighting, sharp focus, high resolution."
+            "5. Output: photorealistic full-body fashion portrait, soft studio lighting, sharp focus, high resolution.\n"
+            f"6. Background: the entire background must be a solid flat {background_color} color. "
+            "Pure uniform fill — no gradients, no textures, no patterns, no props, no environment. "
+            "Just the person on a clean solid-color background."
         )
     })
 
@@ -158,8 +162,8 @@ def _build_agent() -> Agent:
         description="Virtual try-on: dresses a user in selected clothing items using wan2.7-image.",
         instructions=[
             "You are a virtual fashion try-on assistant.",
-            "When given a user image URL and item image URLs, call the generate_image tool immediately.",
-            "Pass the URLs exactly as provided — do not modify them.",
+            "When given a user image URL, item image URLs, and a background color, call the generate_image tool immediately.",
+            "Pass the user_image_url, item_image_urls, items_description, and background_color exactly as provided — do not modify them.",
             "After the tool call completes, reply with a single word: done",
         ],
         tools=[generate_image],
@@ -171,7 +175,7 @@ def _build_agent() -> Agent:
     )
 
 
-def _run_agent_sync(user_image_url: str, item_image_urls: list[str], items_description: str) -> bytes:
+def _run_agent_sync(user_image_url: str, item_image_urls: list[str], items_description: str, background_color: str) -> bytes:
     global _image_result
     _image_result = None
 
@@ -181,6 +185,7 @@ def _run_agent_sync(user_image_url: str, item_image_urls: list[str], items_descr
         f"Generate a virtual try-on image.\n"
         f"User image URL: {user_image_url}\n"
         f"Item image URLs (comma-separated): {item_urls_str}\n"
+        f"Background color: {background_color}\n"
         f"Items description: {items_description}"
     )
     response = agent.run(msg)
@@ -198,9 +203,10 @@ async def generate_outfit_image(
     user_image_url: str,
     item_image_urls: list[str],
     items_description: str,
+    background_color: str = "#FAFAFA",
 ) -> bytes:
     """Dress the user in the given items via wan2.7-image. Returns PNG bytes."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
-        _executor, _run_agent_sync, user_image_url, item_image_urls, items_description
+        _executor, _run_agent_sync, user_image_url, item_image_urls, items_description, background_color
     )

@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     app_env: str = "development"
     app_debug: bool = True
     secret_key: str = "change-me"
+    # Public-facing base URL used by background workers that need to build
+    # absolute URLs (e.g. shuffle prefetch preview links). Must not have a
+    # trailing slash.
+    public_url: str = "http://localhost:8000"
     # Fernet-encoded 32-byte key used to encrypt OAuth tokens at rest.
     # Empty in dev means tokens are stored plaintext (logged as a warning).
     # Generate one with: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"

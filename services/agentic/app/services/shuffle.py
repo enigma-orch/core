@@ -202,6 +202,128 @@ def build_candidates(
     return kept
 
 
+# ── Background color palette ──────────────────────────────────────────────────
+# Each color is associated with a set of occasion/vibe keywords.
+# Priority: occasion → vibe → default.
+
+_OCCASION_BG: dict[str, str] = {
+    "party": "#DD4982",
+    "night out": "#DD4982",
+    "formal": "#A281E9",
+    "wedding": "#A281E9",
+    "activewear": "#FFC400",
+    "casual": "#3FDAE6",
+    "smart-casual": "#1E1E1E",
+    "streetwear": "#1E1E1E",
+}
+
+_VIBE_BG: dict[str, str] = {
+    "bold": "#DD4982",
+    "feminine": "#DD4982",
+    "glam": "#DD4982",
+    "elegant": "#A281E9",
+    "dreamy": "#A281E9",
+    "mysterious": "#A281E9",
+    "fresh": "#3FDAE6",
+    "summer": "#3FDAE6",
+    "sporty": "#FFC400",
+    "energetic": "#FFC400",
+    "edgy": "#1E1E1E",
+    "dark": "#1E1E1E",
+    "minimal": "#FAFAFA",
+    "clean": "#FAFAFA",
+}
+
+
+def pick_background_color(vibe: str | None, occasion: str | None) -> str:
+    if occasion:
+        occ = occasion.lower()
+        if occ in _OCCASION_BG:
+            return _OCCASION_BG[occ]
+    if vibe:
+        v = vibe.lower()
+        for keyword, color in _VIBE_BG.items():
+            if keyword in v:
+                return color
+    return "#FAFAFA"
+
+
+# ── Song suggestion ───────────────────────────────────────────────────────────
+# Spotify tracks (valence, energy) are matched to target audio profile per mood.
+# Falls back to curated static mapping by vibe then mood.
+
+_MOOD_AUDIO: dict[str, tuple[float, float]] = {
+    "happy":      (0.80, 0.65),
+    "energetic":  (0.55, 0.85),
+    "calm":       (0.65, 0.28),
+    "relaxed":    (0.65, 0.35),
+    "melancholic":(0.25, 0.38),
+    "sad":        (0.18, 0.28),
+    "focused":    (0.50, 0.52),
+    "angry":      (0.18, 0.85),
+    "unknown":    (0.50, 0.50),
+}
+
+_VIBE_SONGS: dict[str, tuple[str, str]] = {
+    "streetwear": ("HUMBLE.", "Kendrick Lamar"),
+    "formal":     ("Feeling Good", "Nina Simone"),
+    "elegant":    ("La Vie en Rose", "Édith Piaf"),
+    "bold":       ("Run the World", "Beyoncé"),
+    "minimal":    ("Breathe (2 AM)", "Anna Nalick"),
+    "sporty":     ("Stronger", "Kanye West"),
+    "glam":       ("Diamonds", "Rihanna"),
+    "dreamy":     ("Electric Feel", "MGMT"),
+}
+
+_MOOD_SONGS: dict[str, tuple[str, str]] = {
+    "happy":       ("Happy", "Pharrell Williams"),
+    "energetic":   ("Blinding Lights", "The Weeknd"),
+    "calm":        ("Weightless", "Marconi Union"),
+    "relaxed":     ("Sunset Lover", "Petit Biscuit"),
+    "melancholic": ("The Night We Met", "Lord Huron"),
+    "sad":         ("Someone Like You", "Adele"),
+    "focused":     ("Experience", "Ludovico Einaudi"),
+    "angry":       ("Lose Yourself", "Eminem"),
+    "unknown":     ("Good Days", "SZA"),
+}
+
+
+def suggest_song(
+    mood: str | None,
+    vibe: str | None,
+    spotify_tracks: list[tuple[str, str, float | None, float | None]] | None = None,
+) -> str:
+    """Return 'Track — Artist' matched to the outfit mood/vibe.
+
+    If the user has Spotify tracks with audio features, pick the one whose
+    (valence, energy) is closest to the target profile for this mood.
+    Otherwise fall back to the curated static maps.
+    """
+    if spotify_tracks:
+        target = _MOOD_AUDIO.get((mood or "unknown").lower(), _MOOD_AUDIO["unknown"])
+        best: tuple[str, str] | None = None
+        best_dist = float("inf")
+        for name, artist, valence, energy in spotify_tracks:
+            if valence is None or energy is None:
+                continue
+            dist = ((valence - target[0]) ** 2 + (energy - target[1]) ** 2) ** 0.5
+            if dist < best_dist:
+                best_dist = dist
+                best = (name, artist)
+        if best:
+            return f"{best[0]} — {best[1]}"
+
+    if vibe:
+        v = vibe.lower()
+        for keyword, (track, artist) in _VIBE_SONGS.items():
+            if keyword in v:
+                return f"{track} — {artist}"
+
+    mood_key = (mood or "unknown").lower()
+    track, artist = _MOOD_SONGS.get(mood_key, _MOOD_SONGS["unknown"])
+    return f"{track} — {artist}"
+
+
 _EVENT_KEYWORDS: list[tuple[tuple[str, ...], str]] = [
     (("interview",), "formal"),
     (("meeting", "office", "work", "presentation", "standup"), "smart-casual"),

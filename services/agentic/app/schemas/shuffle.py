@@ -22,6 +22,9 @@ class ShuffleSuggestion(BaseModel):
     occasion: Optional[str] = None
     season: Optional[str] = None
     event_context: Optional[EventContext] = None
+    suggested_song: Optional[str] = None
+    preview_image_url: Optional[str] = None
+    background_color: str = "#FAFAFA"
 
     model_config = ConfigDict(from_attributes=True)
 

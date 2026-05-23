@@ -18,6 +18,7 @@ from app.infrastructure.storage import ensure_bucket
 from app.services.background_removal import init_rembg_session
 from app.workers.spotify_sync import sync_all_users
 from app.workers.outfit_scraper_sync import scheduled_scrape_all_users
+from app.workers.shuffle_prefetch import scheduled_shuffle_prefetch
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ async def lifespan(app: FastAPI):
     # Warm the local rembg fallback session so the first upload doesn't pay
     # the ONNX cold-start cost. Failure is non-fatal — primary backend stays
     # remove.bg.
-    app.state.rembg_session = await loop.run_in_executor(None, init_rembg_session)
+   # app.state.rembg_session = await loop.run_in_executor(None, init_rembg_session)
 
     # Start background Spotify sync scheduler (every 24 hours)
     scheduler = AsyncIOScheduler()
@@ -58,6 +59,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(sync_all_users())
     # Scrape outfits every 60 minutes
     scheduler.add_job(scheduled_scrape_all_users, "interval", minutes=60, id="outfit_scraper")
+    scheduler.add_job(scheduled_shuffle_prefetch, "interval", minutes=60, id="shuffle_prefetch")
     scheduler.start()
     app.state.scheduler = scheduler
 

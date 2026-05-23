@@ -1,6 +1,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # agentic — FastAPI service. Connects to the Postgres + RustFS started by
-# ../../infra. Migrations and schema live in ../../infra/db (not here).
+# ../infra. Migrations and schema live in ../infra/db (not here).
 # ─────────────────────────────────────────────────────────────────────────────
 
 .DEFAULT_GOAL := help
@@ -21,34 +21,34 @@ install: ## Sync Python deps with uv
 run: ## Start FastAPI on :8000 with reload
 	uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-##@ Infrastructure (delegates to ../../infra)
+##@ Infrastructure (delegates to ../infra)
 
 .PHONY: infra-up infra-down infra-ps infra-logs
 
 infra-up: ## Start shared infra (postgres + rustfs + redis)
-	$(MAKE) -C ../../infra up
+	$(MAKE) -C ../infra up
 
 infra-down: ## Stop shared infra
-	$(MAKE) -C ../../infra down
+	$(MAKE) -C ../infra down
 
 infra-ps: ## Show container status
-	$(MAKE) -C ../../infra ps
+	$(MAKE) -C ../infra ps
 
 infra-logs: ## Tail infra logs
-	$(MAKE) -C ../../infra logs
+	$(MAKE) -C ../infra logs
 
-##@ Database (delegates to ../../infra/db)
+##@ Database (delegates to ../infra/db)
 
 .PHONY: migrate db-status db-new
 
 migrate: ## Apply pending migrations
-	$(MAKE) -C ../../infra db-up
+	$(MAKE) -C ../infra db-up
 
 db-status: ## Show applied / pending migrations
-	$(MAKE) -C ../../infra db-status
+	$(MAKE) -C ../infra db-status
 
 db-new: ## Create a new migration. Usage: make db-new name=add_widgets
-	$(MAKE) -C ../../infra db-new name=$(name)
+	$(MAKE) -C ../infra db-new name=$(name)
 
 ##@ One-shot
 

@@ -1,0 +1,60 @@
+[project]
+name = "drip"
+version = "0.1.0"
+description = "FastAPI application with AI agents"
+# readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "agno>=1.4.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+    "asyncpg>=0.30.0",
+    "pydantic-settings>=2.6.0",
+    "boto3>=1.35.0",
+    "python-dotenv>=1.0.0",
+    "greenlet>=3.0.0",
+    "rembg>=2.0.75",
+    "pillow>=12.2.0",
+    "python-multipart>=0.0.29",
+    "onnxruntime>=1.26.0",
+    "httpx>=0.27.0",
+    "apscheduler>=3.10.0",
+    "PyJWT>=2.8.0",
+    "pgvector>=0.4.2",
+    "google-genai>=2.6.0",
+    "psycopg2-binary>=2.9.12",
+    "openai>=2.38.0",
+    "dashscope>=1.25.18",
+    "cryptography>=44.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.27.0",
+    "ruff>=0.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.27.0",
+    "ruff>=0.8.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

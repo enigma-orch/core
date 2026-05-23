@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auth API Tester</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 40px;
+        }
+
+        h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        .endpoints {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
+        }
+
+        .card h2 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .endpoint-info {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 15px;
+            background: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            font-family: monospace;
+        }
+
+        .method {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-weight: bold;
+            color: white;
+            margin-right: 5px;
+        }
+
+        .method.post {
+            background: #ff6b6b;
+        }
+
+        .method.get {
+            background: #4ecdc4;
+        }
+
+        .method.delete {
+            background: #ff8787;
+        }
+
+        input, textarea {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-family: monospace;
+            font-size: 0.9em;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: opacity 0.3s ease;
+        }
+
+        button:hover {
+            opacity: 0.9;
+        }
+
+        button:active {
+            transform: scale(0.98);
+        }
+
+        .response {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 5px;
+            border-left: 4px solid #667eea;
+            display: none;
+            max-height: 250px;
+            overflow-y: auto;
+            font-size: 0.85em;
+            font-family: monospace;
+            word-break: break-all;
+        }
+
+        .response.show {
+            display: block;
+        }
+
+        .response.success {
+            border-left-color: #4ecdc4;
+            background: #f0fffe;
+        }
+
+        .response.error {
+            border-left-color: #ff6b6b;
+            background: #ffe3e3;
+        }
+
+        .info {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 3px;
+            font-size: 0.9em;
+            color: #1565c0;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        .status-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: white;
+            padding: 15px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            z-index: 1000;
+        }
+
+        .status-dot {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+            background: #ff6b6b;
+        }
+
+        .status-dot.online {
+            background: #4ecdc4;
+        }
+
+        body {
+            padding-top: 60px;
+        }
+    </style>
+</head>
+<body>
+    <div class="status-bar">
+        <span class="status-dot" id="status"></span>
+        <span id="statusText">Checking server...</span>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>🔐 Auth API Tester</h1>
+            <p>Test all authentication endpoints</p>
+        </header>
+
+        <div class="endpoints">
+            <!-- Health Check -->
+            <div class="card">
+                <h2>Health Check</h2>
+                <div class="endpoint-info">
+                    <span class="method get">GET</span> /health
+                </div>
+                <div class="info">Verify server is running</div>
+                <button onclick="testHealth()">Check Health</button>
+                <div class="response" id="healthResp"></div>
+            </div>
+
+            <!-- Register -->
+            <div class="card">
+                <h2>Register</h2>
+                <div class="endpoint-info">
+                    <span class="method post">POST</span> /api/auth/register
+                </div>
+                <label>Email:</label>
+                <input type="email" id="regEmail" placeholder="user@example.com" value="test@example.com">
+                <label>Username:</label>
+                <input type="text" id="regUsername" placeholder="username" value="testuser">
+                <label>Password:</label>
+                <input type="password" id="regPassword" placeholder="password" value="password123">
+                <button onclick="testRegister()">Register</button>
+                <div class="response" id="registerResp"></div>
+            </div>
+
+            <!-- Login -->
+            <div class="card">
+                <h2>Login</h2>
+                <div class="endpoint-info">
+                    <span class="method post">POST</span> /api/auth/login
+                </div>
+                <label>Email:</label>
+                <input type="email" id="loginEmail" placeholder="user@example.com" value="test@example.com">
+                <label>Password:</label>
+                <input type="password" id="loginPassword" placeholder="password" value="password123">
+                <button onclick="testLogin()">Login</button>
+                <div class="response" id="loginResp"></div>
+            </div>
+
+            <!-- Get Me -->
+            <div class="card">
+                <h2>Get Profile</h2>
+                <div class="endpoint-info">
+                    <span class="method get">GET</span> /api/me
+                </div>
+                <div class="info">Requires session cookie from login</div>
+                <button onclick="testGetMe()">Get Profile</button>
+                <div class="response" id="getMeResp"></div>
+            </div>
+
+            <!-- Refresh Token -->
+            <div class="card">
+                <h2>Refresh Token</h2>
+                <div class="endpoint-info">
+                    <span class="method post">POST</span> /api/auth/refresh
+                </div>
+                <div class="info">Get new access token</div>
+                <button onclick="testRefreshToken()">Refresh</button>
+                <div class="response" id="refreshResp"></div>
+            </div>
+
+            <!-- Spotify Auth URL -->
+            <div class="card">
+                <h2>Spotify Auth URL</h2>
+                <div class="endpoint-info">
+                    <span class="method get">GET</span> /api/auth/spotify/url
+                </div>
+                <div class="info">Get Spotify authorization URL</div>
+                <button onclick="testSpotifyURL()">Get Auth URL</button>
+                <div class="response" id="spotifyUrlResp"></div>
+            </div>
+
+            <!-- Logout -->
+            <div class="card">
+                <h2>Logout</h2>
+                <div class="endpoint-info">
+                    <span class="method post">POST</span> /api/auth/logout
+                </div>
+                <div class="info">Clear session and cookies</div>
+                <button onclick="testLogout()">Logout</button>
+                <div class="response" id="logoutResp"></div>
+            </div>
+
+            <!-- Session Info -->
+            <div class="card">
+                <h2>Session Info</h2>
+                <div class="endpoint-info">Current Session Data</div>
+                <button onclick="showSessionInfo()">Show Session</button>
+                <div class="response" id="sessionResp"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = 'http://localhost:8080';
+        let sessionId = null;
+
+        // Check server status
+        async function checkServerStatus() {
+            try {
+                const res = await fetch(`${API_URL}/health`);
+                if (res.ok) {
+                    document.getElementById('status').classList.add('online');
+                    document.getElementById('statusText').textContent = '✓ Server is online';
+                }
+            } catch (e) {
+                document.getElementById('statusText').textContent = '✗ Server is offline';
+            }
+        }
+
+        // Test Health
+        async function testHealth() {
+            try {
+                const res = await fetch(`${API_URL}/health`);
+                const data = await res.json();
+                showResponse('healthResp', data, res.ok);
+            } catch (e) {
+                showResponse('healthResp', { error: e.message }, false);
+            }
+        }
+
+        // Test Register
+        async function testRegister() {
+            const email = document.getElementById('regEmail').value;
+            const username = document.getElementById('regUsername').value;
+            const password = document.getElementById('regPassword').value;
+
+            try {
+                const res = await fetch(`${API_URL}/api/auth/register`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, username, password })
+                });
+                const data = await res.json();
+                showResponse('registerResp', data, res.ok);
+            } catch (e) {
+                showResponse('registerResp', { error: e.message }, false);
+            }
+        }
+
+        // Test Login
+        async function testLogin() {
+            const email = document.getElementById('loginEmail').value;
+            const password = document.getElementById('loginPassword').value;
+
+            try {
+                const res = await fetch(`${API_URL}/api/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                
+                // Extract session from cookies
+                const cookies = document.cookie.split(';').map(c => c.trim());
+                const sessionCookie = cookies.find(c => c.startsWith('session_id='));
+                if (sessionCookie) {
+                    sessionId = sessionCookie.split('=')[1];
+                    console.log('Session ID:', sessionId);
+                }
+                
+                showResponse('loginResp', data, res.ok);
+            } catch (e) {
+                showResponse('loginResp', { error: e.message }, false);
+            }
+        }
+
+        // Test Get Me
+        async function testGetMe() {
+            try {
+                const res = await fetch(`${API_URL}/api/me`, {
+                    method: 'GET',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                showResponse('getMeResp', data, res.ok);
+            } catch (e) {
+                showResponse('getMeResp', { error: e.message }, false);
+            }
+        }
+
+        // Test Refresh Token
+        async function testRefreshToken() {
+            try {
+                const res = await fetch(`${API_URL}/api/auth/refresh`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                showResponse('refreshResp', data, res.ok);
+            } catch (e) {
+                showResponse('refreshResp', { error: e.message }, false);
+            }
+        }
+
+        // Test Spotify URL
+        async function testSpotifyURL() {
+            try {
+                const res = await fetch(`${API_URL}/api/auth/spotify/url`);
+                const data = await res.json();
+                showResponse('spotifyUrlResp', data, res.ok);
+            } catch (e) {
+                showResponse('spotifyUrlResp', { error: e.message }, false);
+            }
+        }
+
+        // Test Logout
+        async function testLogout() {
+            try {
+                const res = await fetch(`${API_URL}/api/auth/logout`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include'
+                });
+                const data = await res.json();
+                sessionId = null;
+                showResponse('logoutResp', data, res.ok);
+            } catch (e) {
+                showResponse('logoutResp', { error: e.message }, false);
+            }
+        }
+
+        // Show Session Info
+        function showSessionInfo() {
+            const info = {
+                sessionId: sessionId || 'Not set',
+                cookies: document.cookie || 'No cookies',
+                localStorage: Object.keys(localStorage).length > 0 ? Object.fromEntries(
+                    Object.keys(localStorage).map(k => [k, localStorage.getItem(k)])
+                ) : 'Empty'
+            };
+            showResponse('sessionResp', info, true);
+        }
+
+        // Show Response
+        function showResponse(elementId, data, success) {
+            const elem = document.getElementById(elementId);
+            elem.textContent = JSON.stringify(data, null, 2);
+            elem.classList.add('show');
+            elem.classList.toggle('success', success);
+            elem.classList.toggle('error', !success);
+        }
+
+        // Initialize
+        window.addEventListener('load', checkServerStatus);
+        setInterval(checkServerStatus, 5000);
+    </script>
+</body>
+</html>

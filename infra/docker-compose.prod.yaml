@@ -55,7 +55,7 @@ services:
     restart: unless-stopped
 
   agentic:
-    build: ../services/agentic
+    image: ghcr.io/enigma-orch/agentic:latest
     container_name: enigma_agentic
     ports:
       - "8000:8000"
@@ -78,7 +78,7 @@ services:
     restart: unless-stopped
 
   api:
-    build: ../services/api
+    image: ghcr.io/enigma-orch/api:latest
     container_name: enigma_api
     ports:
       - "8080:8080"

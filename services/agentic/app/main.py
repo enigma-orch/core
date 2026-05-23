@@ -51,9 +51,11 @@ async def lifespan(app: FastAPI):
     # remove.bg.
     app.state.rembg_session = await loop.run_in_executor(None, init_rembg_session)
 
-    # Start background Spotify sync scheduler (every 15 minutes)
+    # Start background Spotify sync scheduler (every 24 hours)
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(sync_all_users, "interval", minutes=15, id="spotify_sync")
+    scheduler.add_job(sync_all_users, "interval", hours=24, id="spotify_sync")
+    # Fire once immediately on startup so no one waits 24h for first sync
+    asyncio.create_task(sync_all_users())
     # Scrape outfits every 60 minutes
     scheduler.add_job(scheduled_scrape_all_users, "interval", minutes=60, id="outfit_scraper")
     scheduler.start()

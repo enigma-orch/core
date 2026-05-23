@@ -1,8 +1,8 @@
 """
-Background worker — fetches Spotify recently-played tracks for every user,
+Background worker — fetches the user's 5 most recently saved Spotify tracks,
 stores them, updates audio features, then recalculates mood.
 
-Runs every 15 minutes via APScheduler.
+Runs every 24 hours via APScheduler.
 """
 from __future__ import annotations
 
@@ -50,22 +50,29 @@ async def sync_user(user: User, session: AsyncSession) -> None:
         return
 
     try:
-        items = await spotify_svc.get_recently_played(access_token)
+        items = await spotify_svc.get_my_tracks(access_token, limit=5)
     except Exception as exc:
-        logger.warning("Failed to fetch recently-played for user %s: %s", user.id, exc)
+        logger.warning("Failed to fetch saved tracks for user %s: %s", user.id, exc)
         return
 
-    new_tracks: list[SpotifyTrack] = []
+    if not items:
+        return
+
+    tracks_for_mood: list[SpotifyTrack] = []
     for item in items:
         track = item.get("track", {})
         spotify_track_id = track.get("id")
-        played_at_str = item.get("played_at")
-        if not spotify_track_id or not played_at_str:
+        if not spotify_track_id:
             continue
 
-        played_at = datetime.fromisoformat(played_at_str.replace("Z", "+00:00"))
+        added_at_str = item.get("added_at")
+        played_at = (
+            datetime.fromisoformat(added_at_str.replace("Z", "+00:00"))
+            if added_at_str
+            else datetime.now(timezone.utc)
+        )
 
-        # Skip duplicates
+        # Skip if we already have this exact track saved at this time
         existing = await session.scalar(
             select(SpotifyTrack).where(
                 SpotifyTrack.user_id == user.id,
@@ -74,29 +81,31 @@ async def sync_user(user: User, session: AsyncSession) -> None:
             )
         )
         if existing:
+            tracks_for_mood.append(existing)
             continue
 
         images = track.get("album", {}).get("images", [])
-        new_tracks.append(
-            SpotifyTrack(
-                user_id=user.id,
-                spotify_track_id=spotify_track_id,
-                track_name=track.get("name", ""),
-                artist_name=", ".join(a["name"] for a in track.get("artists", [])),
-                album_name=track.get("album", {}).get("name"),
-                album_image_url=images[0]["url"] if images else None,
-                played_at=played_at,
-            )
+        st = SpotifyTrack(
+            user_id=user.id,
+            spotify_track_id=spotify_track_id,
+            track_name=track.get("name", ""),
+            artist_name=", ".join(a["name"] for a in track.get("artists", [])),
+            album_name=track.get("album", {}).get("name"),
+            album_image_url=images[0]["url"] if images else None,
+            played_at=played_at,
         )
+        session.add(st)
+        tracks_for_mood.append(st)
 
-    if new_tracks:
-        # Fetch audio features for the new batch
+    # Fetch audio features for tracks that don't have them yet
+    need_features = [t for t in tracks_for_mood if t.valence is None and t.spotify_track_id]
+    if need_features:
         try:
             features = await spotify_svc.get_audio_features(
-                access_token, [t.spotify_track_id for t in new_tracks]
+                access_token, [t.spotify_track_id for t in need_features]
             )
             feat_map = {f["id"]: f for f in features if f}
-            for t in new_tracks:
+            for t in need_features:
                 f = feat_map.get(t.spotify_track_id, {})
                 t.valence = f.get("valence")
                 t.energy = f.get("energy")
@@ -105,20 +114,11 @@ async def sync_user(user: User, session: AsyncSession) -> None:
         except Exception as exc:
             logger.warning("Audio features fetch failed for user %s: %s", user.id, exc)
 
-        session.add_all(new_tracks)
+    await session.flush()
 
-    # Recalculate mood from the 50 most recent tracks that have features
-    recent = (
-        await session.scalars(
-            select(SpotifyTrack)
-            .where(SpotifyTrack.user_id == user.id, SpotifyTrack.valence.is_not(None))
-            .order_by(SpotifyTrack.played_at.desc())
-            .limit(50)
-        )
-    ).all()
-
-    user.mood = extract_mood(list(recent))
-    logger.info("User %s mood updated to %s", user.id, user.mood)
+    # Derive mood solely from these 5 tracks
+    user.mood = extract_mood(tracks_for_mood)
+    logger.info("User %s mood updated to %s (from %d tracks)", user.id, user.mood, len(tracks_for_mood))
 
 
 async def sync_all_users() -> None:

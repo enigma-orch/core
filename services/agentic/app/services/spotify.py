@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import base64
-import hashlib
 import time
 import urllib.parse
 from datetime import datetime, timedelta, timezone
@@ -12,19 +11,9 @@ import httpx
 
 from app.config import settings
 
-# Spotify rate-limits recently-played at ~50 reqs/sec across the app; cache
-# per-user for 10 minutes so the 15-min worker sync still gets fresh data
-# but ad-hoc calls (e.g. /compose) reuse it.
-_RECENTLY_PLAYED_TTL = 10 * 60
 _AUDIO_FEATURES_TTL = 24 * 3600  # audio features never change for a track
 
-_recent_cache: dict[str, tuple[float, list[dict[str, Any]]]] = {}
 _features_cache: dict[str, tuple[float, dict[str, Any]]] = {}
-
-
-def _token_fingerprint(access_token: str) -> str:
-    """Hash the access token so the cache key isn't itself the secret."""
-    return hashlib.sha256(access_token.encode()).hexdigest()[:32]
 
 SPOTIFY_AUTH_URL = "https://accounts.spotify.com/authorize"
 SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
@@ -34,6 +23,7 @@ SCOPES = [
     "user-read-private",
     "user-read-email",
     "user-read-recently-played",
+    "user-library-read",
 ]
 
 
@@ -94,22 +84,16 @@ async def get_current_user(access_token: str) -> dict[str, Any]:
         return resp.json()
 
 
-async def get_recently_played(access_token: str, limit: int = 50) -> list[dict[str, Any]]:
-    cache_key = f"{_token_fingerprint(access_token)}:{limit}"
-    cached = _recent_cache.get(cache_key)
-    if cached and (time.monotonic() - cached[0]) < _RECENTLY_PLAYED_TTL:
-        return cached[1]
-
+async def get_my_tracks(access_token: str, limit: int = 5) -> list[dict[str, Any]]:
+    """Fetch the user's most recently saved tracks (max 5)."""
     async with httpx.AsyncClient() as client:
         resp = await client.get(
-            f"{SPOTIFY_API_BASE}/me/player/recently-played",
+            f"{SPOTIFY_API_BASE}/me/tracks",
             headers={"Authorization": f"Bearer {access_token}"},
             params={"limit": limit},
         )
         resp.raise_for_status()
-        items = resp.json().get("items", [])
-    _recent_cache[cache_key] = (time.monotonic(), items)
-    return items
+        return resp.json().get("items", [])
 
 
 async def get_audio_features(access_token: str, track_ids: list[str]) -> list[dict[str, Any]]:

@@ -11,7 +11,7 @@ include .env
 export
 endif
 
-DBMATE := dbmate --migrations-dir db/migrations --schema-file db/schema.sql
+DBMATE := docker compose run --rm migrate
 
 .PHONY: help
 help: ## Show this help

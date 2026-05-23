@@ -22,6 +22,8 @@ services:
     command: up
     environment:
       DATABASE_URL: "postgres://${POSTGRES_USER:-drip}:${POSTGRES_PASSWORD:-drip}@postgres:5432/${POSTGRES_DB:-drip}?sslmode=disable"
+      DBMATE_MIGRATIONS_DIR: /db/migrations
+      DBMATE_SCHEMA_FILE: /db/schema.sql
     volumes:
       - ./db:/db
     depends_on:

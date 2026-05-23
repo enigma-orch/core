@@ -1,14 +1,12 @@
---
--- PostgreSQL database dump
---
-
+\restrict dbmate
 
 -- Dumped from database version 16.14 (Debian 16.14-1.pgdg12+1)
--- Dumped by pg_dump version 16.14 (Debian 16.14-1.pgdg12+1)
+-- Dumped by pg_dump version 18.3
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
 SET idle_in_transaction_session_timeout = 0;
+SET transaction_timeout = 0;
 SET client_encoding = 'UTF8';
 SET standard_conforming_strings = on;
 SELECT pg_catalog.set_config('search_path', '', false);
@@ -59,6 +57,8 @@ CREATE TYPE public.visibility_enum AS ENUM (
     'PRIVATE'
 );
 
+
+SET default_tablespace = '';
 
 SET default_table_access_method = heap;
 
@@ -900,4 +900,22 @@ ALTER TABLE ONLY public.spotify_tracks
 -- PostgreSQL database dump complete
 --
 
+\unrestrict dbmate
 
+
+--
+-- Dbmate schema migrations
+--
+
+INSERT INTO public.schema_migrations (version) VALUES
+    ('20260522000001'),
+    ('20260522000002'),
+    ('20260523000001'),
+    ('20260523000002'),
+    ('20260523000003'),
+    ('20260523114543'),
+    ('20260523125103'),
+    ('20260523200000'),
+    ('20260524000001'),
+    ('20260524000002'),
+    ('20260524000003');

@@ -19,4 +19,4 @@ jobs:
             git pull origin main
             cd infra
             test -f .env || cp .env.example .env
-            docker compose -f docker-compose.prod.yaml up -d --build
+            docker compose -f docker-compose.prod.yaml up -d --build 

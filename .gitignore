@@ -1,0 +1,35 @@
+# Env files (only .env.example is committed)
+.env
+*.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# Go
+bin/
+vendor/
+*.test
+*.out
+coverage.txt
+
+# Node (in case clients land here later)
+node_modules/
+
+# OS / editor
+.DS_Store
+*.swp
+.vscode/*
+!.vscode/settings.json
+.idea/
+*.log
+
+# Local DB dumps you didn't mean to commit
+*.dump
+*.backup

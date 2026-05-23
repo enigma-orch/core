@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -22,14 +26,14 @@ jobs:
         with:
           context: services/agentic
           push: true
-          tags: ghcr.io/enigma-orch/agentic:latest
+          tags: ghcr.io/enigma-orch/core/agentic:latest
 
       - name: Build & push api
         uses: docker/build-push-action@v5
         with:
           context: services/api
           push: true
-          tags: ghcr.io/enigma-orch/api:latest
+          tags: ghcr.io/enigma-orch/core/api:latest
 
       - name: Deploy to VPS
         uses: appleboy/ssh-action@v1

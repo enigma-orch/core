@@ -65,3 +65,61 @@ async def upload_avatar(
     await db.refresh(user)
 
     return UserMeOut.from_user(user)
+
+from pathlib import Path
+
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.infrastructure.database import get_db
+from app.infrastructure.storage import upload_file
+from app.models.user import User
+from app.schemas.user import UserOut
+from app.services.background_removal import ALLOWED_CONTENT_TYPES, MAX_BYTES
+from app.services.jwt import get_current_user_id_verified
+
+router = APIRouter(prefix="/users", tags=["users"])
+
+_AVATAR_MAX_BYTES = 5 * 1024 * 1024  # 5 MB — tighter than wardrobe items
+
+
+def _avatar_key(user_id: str, filename: str | None) -> str:
+    ext = Path(filename).suffix.lstrip(".").lower() if filename else "jpg"
+    ext = ext if ext in {"jpg", "jpeg", "png", "webp"} else "jpg"
+    # Deterministic per-user key so re-uploads overwrite in place.
+    return f"avatars/{user_id}.{ext}"
+
+
+@router.post("/me/avatar", response_model=UserOut, summary="Upload profile picture")
+async def upload_avatar(
+    request: Request,
+    image: UploadFile,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id_verified),
+) -> UserOut:
+    if image.content_type not in ALLOWED_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"Unsupported type '{image.content_type}'. Accepted: {', '.join(ALLOWED_CONTENT_TYPES)}",
+        )
+
+    data = await image.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    if len(data) > _AVATAR_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 5 MB)")
+
+    key = _avatar_key(current_user_id, image.filename)
+    upload_file(key, data, content_type=image.content_type, bucket=request.app.state.rustfs_bucket)
+
+    base = str(request.base_url).rstrip("/")
+    avatar_url = f"{base}/api/v1/wardrobe/files/{key}"
+
+    user = await db.get(User, current_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.avatar_url = avatar_url
+    await db.flush()
+    await db.refresh(user)
+    return UserOut.model_validate(user)

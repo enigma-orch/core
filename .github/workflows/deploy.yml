@@ -1,0 +1,22 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          password: ${{ secrets.PASS }}
+          script: |
+            cd /root/test-app
+            git pull origin main
+            cd infra
+            test -f .env || cp .env.example .env
+            docker compose -f docker-compose.prod.yaml up -d --build

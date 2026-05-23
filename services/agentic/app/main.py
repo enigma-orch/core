@@ -56,7 +56,13 @@ async def lifespan(app: FastAPI):
     scheduler = AsyncIOScheduler()
     scheduler.add_job(sync_all_users, "interval", hours=24, id="spotify_sync")
     # Fire once immediately on startup so no one waits 24h for first sync
-    asyncio.create_task(sync_all_users())
+    async def _sync_all_safe() -> None:
+        try:
+            await sync_all_users()
+        except Exception as exc:
+            logger.warning("Startup Spotify sync failed (non-fatal): %s", exc)
+
+    asyncio.create_task(_sync_all_safe())
     # Scrape outfits every 60 minutes
     scheduler.add_job(scheduled_scrape_all_users, "interval", minutes=60, id="outfit_scraper")
     scheduler.add_job(scheduled_shuffle_prefetch, "interval", minutes=60, id="shuffle_prefetch")

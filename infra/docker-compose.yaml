@@ -1,0 +1,87 @@
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: enigma_postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-drip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-drip}
+      POSTGRES_DB: ${POSTGRES_DB:-drip}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-drip}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  migrate:
+    image: ghcr.io/amacneil/dbmate:2
+    command: up
+    environment:
+      DATABASE_URL: "postgres://${POSTGRES_USER:-drip}:${POSTGRES_PASSWORD:-drip}@postgres:5432/${POSTGRES_DB:-drip}?sslmode=disable"
+    volumes:
+      - ./db:/db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: on-failure
+
+  rustfs:
+    image: rustfs/rustfs:latest
+    container_name: enigma_rustfs
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-drip-access-key}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-drip-secret-key}
+      RUSTFS_ALLOW_INSECURE_DEFAULT_CREDENTIALS: "true"
+    volumes:
+      - rustfs_data:/data
+    command: server /data --console-address ":9001"
+
+  redis:
+    image: redis:7-alpine
+    container_name: enigma_redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Optional. Start with: docker compose --profile graph up -d
+  neo4j:
+    image: neo4j:5-community
+    container_name: enigma_neo4j
+    profiles: ["graph"]
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:-change-me}
+      NEO4J_server_memory_pagecache_size: 256M
+      NEO4J_server_memory_heap_initial__size: 256M
+      NEO4J_server_memory_heap_max__size: 512M
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p $${NEO4J_PASSWORD:-change-me} 'RETURN 1' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  rustfs_data:
+  redis_data:
+  neo4j_data:
+  neo4j_logs:

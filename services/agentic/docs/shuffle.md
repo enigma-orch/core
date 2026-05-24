@@ -15,12 +15,101 @@ endpoint falls back to the same candidate ranking but without preview images.
 
 ---
 
+## Mobile integration guide
+
+### Prerequisites — what must be true before shuffle works
+
+| # | Requirement | How to satisfy | Endpoint |
+|---|---|---|---|
+| 1 | User account exists | Guest or OAuth login | `POST /auth/guest` · `GET /auth/spotify` · `POST /auth/google` |
+| 2 | At least 1 wardrobe item uploaded | Upload clothing photos | `POST /wardrobe/upload` |
+| 3 | Items have both a top and a bottom (or at least one dress) | Upload the right categories | same |
+| 4 | Profile photo uploaded | Required **only** for try-on preview images via `/shuffle/prefetch` | `PATCH /users/me/avatar` |
+
+Requirements 1–3 are hard blockers — the endpoint returns `400` without them.  
+Requirement 4 is only needed for the richer pre-generated path (with try-on images); `GET /shuffle` works without it but returns `null` for `preview_image_url`.
+
+---
+
+### Recommended first-launch sequence
+
+```
+1. Login  →  POST /auth/guest  (or Spotify / Google)
+             ↳ store access_token + refresh_token
+
+2. Onboarding  →  GET /onboarding/vibes, /colors, /stores   (show selection screens)
+               →  POST /onboarding/complete                  (save choices)
+
+3. Wardrobe setup  →  PATCH /users/me/avatar    (upload profile photo)
+                   →  POST /wardrobe/upload      (upload clothing items, 1+ tops + 1+ bottoms)
+
+4. Prime suggestions  →  POST /shuffle/prefetch   (fires background try-on generation)
+                         ↳ returns 202 immediately — poll or wait before fetching
+
+5. Fetch suggestions  →  GET /shuffle
+```
+
+After step 4, try-on images are usually ready within 2–5 minutes depending on wardrobe size. The app can call `GET /shuffle` optimistically before they're ready — it will return item groupings and metadata immediately with `preview_image_url: null`, and the images will appear on subsequent calls once generation completes.
+
+---
+
+### When to call each endpoint
+
+| Trigger | Action |
+|---|---|
+| App foreground / home tab open | `GET /shuffle` (use cached response if < 1 hour old) |
+| User uploads new wardrobe item | `POST /shuffle/prefetch` then refresh suggestions |
+| User uploads profile photo | `POST /shuffle/prefetch` (first time avatar is set) |
+| User taps "Refresh" | `POST /shuffle/prefetch` → wait for 202 → re-fetch after delay |
+| User picks an occasion (e.g. "party tonight") | `GET /shuffle?occasion=party` |
+| User's calendar has an event today | Handled server-side automatically when `use_calendar=true` (default) |
+
+---
+
+### Handling the two response paths
+
+Always check `preview_image_url` per suggestion — it can be `null` even in a 200 response.
+
+```
+suggestion.preview_image_url != null
+  → show try-on image as card hero
+
+suggestion.preview_image_url == null
+  → fall back to a collage of suggestion.items[*].clean_image_url
+    (the individual clothing item images, background-removed)
+```
+
+`taste_signal` tells you the quality of personalisation to show in the UI:
+
+| `taste_signal` | Meaning | Suggested UI hint |
+|---|---|---|
+| `liked` | Ranked from outfits the user has liked | — (best signal, no hint needed) |
+| `worn` | Ranked from wear history | "Based on what you've been wearing" |
+| `none` | No signal yet — random-ish ranking | "Add more items or like some outfits to personalise" |
+
+---
+
+### Occasions
+
+Valid values for the `?occasion=` query param (and what triggers them automatically from calendar events):
+
+| Value | Triggered by event keywords |
+|---|---|
+| `casual` | _(default when no event matches)_ |
+| `smart-casual` | meeting · office · work · presentation · standup · date · dinner |
+| `formal` | interview · wedding · gala |
+| `party` | party · birthday · club · night out |
+| `activewear` | gym · workout · run · yoga · pilates · training |
+| `streetwear` | _(manual override only)_ |
+
+---
+
 ## Endpoints
 
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/v1/shuffle` | Return outfit suggestions (fast path or live fallback) |
-| `POST` | `/api/v1/shuffle/prefetch` | Trigger background pre-generation for the calling user |
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `GET` | `/api/v1/shuffle` | ✅ | Return outfit suggestions (fast path or live fallback) |
+| `POST` | `/api/v1/shuffle/prefetch` | ✅ | Trigger background pre-generation for the calling user |
 
 ---
 
@@ -244,14 +333,26 @@ keywords are checked first, then the mood map.
 
 ---
 
-## Data Dependencies
+## Data dependencies
 
-| Dependency | Where |
+| Dependency | Where | Required for |
+|---|---|---|
+| Item embeddings (768-dim) | `items.embedding` — written at upload time | Taste-vector ranking |
+| Outfit embeddings | `outfits.embedding` — written at compose time | Taste vector |
+| Outfit likes | `outfit_likes` table | `taste_signal = liked` |
+| Google Calendar token | `users.google_access_token` | Automatic occasion inference |
+| Spotify tracks + audio features | `spotify_tracks` table, synced every 24 h | Song matching + music taste boost |
+| Spotify top artists / playlists | Fetched live from Spotify API when user has token | Genre → vibe score boost (stub — coming soon) |
+| User profile photo | `users.avatar_url` | Try-on image generation via `/shuffle/prefetch` |
+| Pre-generated suggestions | `outfit_suggestions` table — written by prefetch worker | Fast path (with preview images) |
+
+### Constraints summary for mobile
+
+| Constraint | Consequence if violated |
 |---|---|
-| Item embeddings (768-dim) | `items.embedding` — written at upload time |
-| Outfit embeddings | `outfits.embedding` — written at compose time |
-| Outfit likes | `outfit_likes` table |
-| Google Calendar token | `users.google_access_token` |
-| Spotify tracks + audio features | `spotify_tracks` table, synced every 15 min |
-| User profile photo | `users.avatar_url` — required for try-on image generation |
-| Pre-generated suggestions | `outfit_suggestions` table — written by prefetch worker |
+| No wardrobe items | `400 Wardrobe is empty` |
+| Items exist but no top+bottom combo (and no dress) | Returns 0 suggestions |
+| No profile photo (`avatar_url` is null) | `POST /shuffle/prefetch` returns `400`; `GET /shuffle` still works but `preview_image_url` is always `null` |
+| Spotify not linked | Song matching falls back to static curated list; no music taste boost |
+| Google Calendar not linked | Occasion not inferred automatically; pass `?occasion=` manually or omit |
+| Pre-generated suggestions expired (> 24 h old) | Falls back to live ranking — same metadata, no preview images until next prefetch |

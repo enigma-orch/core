@@ -8,6 +8,7 @@ import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -178,20 +179,41 @@ async def get_me(
     )
 
 
-@router.post("/guest", response_model=TokenResponse, summary="Create a guest session")
-async def guest_login(db: AsyncSession = Depends(get_db)):
-    """
-    Creates a temporary guest user with no Spotify/Google links and returns
-    a JWT so the app is usable before the user connects their accounts.
-    """
-    user = User(display_name="Guest")
-    db.add(user)
-    await db.flush()
-    await db.refresh(user)
+class GuestLoginRequest(BaseModel):
+    # Optional stable identifier (e.g., a UUID persisted on the device).
+    # Same client_id always returns tokens for the same user — enables
+    # logout/relogin testing without OAuth. Omit to get a fresh anonymous guest.
+    client_id: str | None = None
 
-    # Auto-seed demo wardrobe so the app is usable immediately
-    clothing_repo = ClothingItemRepository(db, user.id)
-    await clothing_repo.seed_demo()
+
+@router.post("/guest", response_model=TokenResponse, summary="Create a guest session")
+async def guest_login(
+    body: GuestLoginRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Creates (or reuses) a guest user and returns a JWT so the app is usable
+    before the user connects their accounts. If `client_id` is supplied and
+    a guest with that identifier already exists, returns tokens for that
+    existing user — preserving avatar, wardrobe, outfits, etc.
+    """
+    client_id = body.client_id if body else None
+    stable_email = f"guest-{client_id}@local.dev" if client_id else None
+
+    user: User | None = None
+    if stable_email:
+        user = await db.scalar(select(User).where(User.email == stable_email))
+
+    is_new = user is None
+    if user is None:
+        user = User(display_name="Guest", email=stable_email)
+        db.add(user)
+        await db.flush()
+        await db.refresh(user)
+
+    if is_new:
+        clothing_repo = ClothingItemRepository(db, user.id)
+        await clothing_repo.seed_demo()
 
     access, refresh = await _issue_tokens(user, db)
     return TokenResponse(
@@ -284,9 +306,6 @@ async def spotify_callback(
 # ---------------------------------------------------------------------------
 # Google Sign-In — verifies ID token from iOS GoogleSignInManager
 # ---------------------------------------------------------------------------
-
-from pydantic import BaseModel
-
 
 class GoogleSignInRequest(BaseModel):
     id_token: str

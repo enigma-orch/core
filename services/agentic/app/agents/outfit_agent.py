@@ -1,29 +1,24 @@
 """
-Outfit image generation agent.
+Outfit image generation.
 
-Takes the user's photo + item images already stored in RustFS (from the upload
-pipeline) and sends them directly to wan2.7-image via the DashScope
-ImageGeneration SDK.  The model replaces the user's current outfit with the
-provided clothing items, producing a photorealistic virtual try-on result.
+Takes the user's photo + item images stored in RustFS and sends them directly
+to wan2.7-image via the DashScope ImageGeneration SDK. The model replaces the
+user's current outfit with the provided clothing items, producing a
+photorealistic virtual try-on result.
 
-No re-analysis of items is performed here — all item metadata (vibe, mood,
-season, occasion) was already extracted during the upload pipeline and is
-read directly from the database by the caller.
+No LLM orchestration layer — the call is made directly to the image generation
+API to avoid latency and non-determinism from routing through a chat model.
 """
 
 import asyncio
 import base64
 import logging
 from concurrent.futures import ThreadPoolExecutor
-
 import io
 
 import dashscope
 import httpx
-from agno.agent import Agent
 from PIL import Image
-from agno.models.dashscope import DashScope
-from agno.tools import tool
 from dashscope.aigc.image_generation import ImageGeneration
 from dashscope.api_entities.dashscope_response import Message
 
@@ -35,10 +30,7 @@ _executor = ThreadPoolExecutor(max_workers=2)
 
 dashscope.base_http_api_url = settings.qwen_wan_base_http_url
 
-_MIN_DIM = 240  # wan2.7-image minimum dimension
-
-# Out-of-band bytes store — agno tools must return str
-_image_result: bytes | None = None
+_MIN_DIM = 240  # wan2.7-image minimum dimension per dimension
 
 
 def _ensure_min_size(img_bytes: bytes, mime: str) -> tuple[bytes, str]:
@@ -56,35 +48,18 @@ def _ensure_min_size(img_bytes: bytes, mime: str) -> tuple[bytes, str]:
     return buf.getvalue(), f"image/{fmt.lower()}"
 
 
-@tool
-def generate_image(user_image_url: str, item_image_urls: str, items_description: str, background_color: str) -> str:
-    """
-    Generate a virtual try-on image.
-
-    Sends the user's photo and clothing item images to wan2.7-image.
-    The model dresses the user in the provided items using both the visual
-    references and the structured item descriptions to avoid hallucination.
-
-    Args:
-        user_image_url: URL of the user's photo.
-        item_image_urls: Comma-separated URLs of the clothing item images.
-        items_description: Structured description of each item from the DB.
-        background_color: Hex color code for the solid background (e.g. "#FAFAFA").
-
-    Returns:
-        'ok' on success, or an error string on failure.
-    """
-    global _image_result
-    _image_result = None
-    logger.info("generate_image tool called: user=%s items=%s bg=%s", user_image_url, item_image_urls[:80], background_color)
-
+def _run_image_generation_sync(
+    user_image_url: str,
+    item_image_urls: list[str],
+    items_description: str,
+    background_color: str,
+) -> bytes:
+    """Blocking DashScope call — runs in a thread via run_in_executor."""
     api_key = settings.qwen_wan_api_key or settings.qwen_api_key
 
-    urls = [user_image_url] + [u.strip() for u in item_image_urls.split(",") if u.strip()]
+    urls = [user_image_url] + item_image_urls
+    content: list[dict] = []
 
-    # DashScope servers cannot reach localhost — download images here and send as base64
-    # Also ensure each image meets the 240x240 minimum required by wan2.7-image
-    content = []
     with httpx.Client(timeout=20) as client:
         for url in urls:
             try:
@@ -98,14 +73,16 @@ def generate_image(user_image_url: str, item_image_urls: str, items_description:
                 logger.warning("Skipping image %s: %s", url, exc)
 
     if len(content) < 2:
-        return "Not enough images could be downloaded (need at least user + 1 item)"
+        raise RuntimeError(
+            f"Not enough images could be downloaded (need at least user + 1 item, got {len(content)})"
+        )
 
     content.append({
         "text": (
             "TASK: Virtual fashion try-on.\n\n"
             "IMAGE ORDER:\n"
             "- Image 1: the reference person — their face, body shape, skin tone, and pose must be preserved exactly.\n"
-            f"- Images 2+: the clothing items to wear, described below.\n\n"
+            "- Images 2+: the clothing items to wear, described below.\n\n"
             "ITEM DESCRIPTIONS (ground truth — do NOT deviate from these):\n"
             f"{items_description}\n\n"
             "INSTRUCTIONS:\n"
@@ -121,82 +98,40 @@ def generate_image(user_image_url: str, item_image_urls: str, items_description:
         )
     })
 
-    message = Message(role="user", content=content)
+    logger.info(
+        "wan2.7-image: calling DashScope — user=%s items=%d",
+        user_image_url,
+        len(item_image_urls),
+    )
 
-    logger.info("wan2.7-image: user=%s items=%s", user_image_url, item_image_urls[:80])
     rsp = ImageGeneration.call(
         model=settings.qwen_wan_model,
         api_key=api_key,
-        messages=[message],
+        messages=[Message(role="user", content=content)],
         enable_sequential=False,
         n=1,
         size="1024*1024",
     )
 
     if rsp.status_code != 200:
-        return f"Error {rsp.status_code}: {rsp.message}"
+        raise RuntimeError(f"DashScope error {rsp.status_code}: {rsp.message}")
 
     choices = (rsp.output or {}).get("choices") or []
     if not choices:
-        return f"No choices in response: {rsp.output}"
+        raise RuntimeError(f"No choices in DashScope response: {rsp.output}")
 
     for block in choices[0].get("message", {}).get("content", []):
         img_val = block.get("image", "")
         if img_val.startswith("data:"):
-            _, b64 = img_val.split(",", 1)
-            _image_result = base64.b64decode(b64)
-            return "ok"
+            _, b64_data = img_val.split(",", 1)
+            return base64.b64decode(b64_data)
         if img_val.startswith("http"):
             with httpx.Client(timeout=30) as client:
-                resp = client.get(img_val)
-                resp.raise_for_status()
-            _image_result = resp.content
-            return "ok"
+                img_resp = client.get(img_val)
+                img_resp.raise_for_status()
+            return img_resp.content
 
-    return f"No image found in response: {choices}"
-
-
-def _build_agent() -> Agent:
-    return Agent(
-        name="OutfitImageAgent",
-        description="Virtual try-on: dresses a user in selected clothing items using wan2.7-image.",
-        instructions=[
-            "You are a virtual fashion try-on assistant.",
-            "When given a user image URL, item image URLs, and a background color, call the generate_image tool immediately.",
-            "Pass the user_image_url, item_image_urls, items_description, and background_color exactly as provided — do not modify them.",
-            "After the tool call completes, reply with a single word: done",
-        ],
-        tools=[generate_image],
-        model=DashScope(
-            id=settings.qwen_model,
-            api_key=settings.qwen_api_key,
-        ),
-        markdown=False,
-    )
-
-
-def _run_agent_sync(user_image_url: str, item_image_urls: list[str], items_description: str, background_color: str) -> bytes:
-    global _image_result
-    _image_result = None
-
-    agent = _build_agent()
-    item_urls_str = ",".join(item_image_urls)
-    msg = (
-        f"Generate a virtual try-on image.\n"
-        f"User image URL: {user_image_url}\n"
-        f"Item image URLs (comma-separated): {item_urls_str}\n"
-        f"Background color: {background_color}\n"
-        f"Items description: {items_description}"
-    )
-    response = agent.run(msg)
-    logger.info("OutfitImageAgent response content: %s", getattr(response, "content", response))
-    logger.info("_image_result set: %s", _image_result is not None)
-
-    if _image_result is None:
-        raise RuntimeError(
-            f"OutfitImageAgent did not produce an image. Agent response: {response}"
-        )
-    return _image_result
+    raise RuntimeError(f"No image found in DashScope response choices: {choices}")
 
 
 async def generate_outfit_image(
@@ -208,5 +143,10 @@ async def generate_outfit_image(
     """Dress the user in the given items via wan2.7-image. Returns PNG bytes."""
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
-        _executor, _run_agent_sync, user_image_url, item_image_urls, items_description, background_color
+        _executor,
+        _run_image_generation_sync,
+        user_image_url,
+        item_image_urls,
+        items_description,
+        background_color,
     )

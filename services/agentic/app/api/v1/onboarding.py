@@ -1,4 +1,17 @@
-"""Onboarding endpoints — catalog lookups and profile completion."""
+"""Onboarding endpoints — catalog lookups and profile completion.
+
+Catalog endpoints (no auth required):
+  GET /onboarding/vibes   — style vibes the user picks during onboarding
+  GET /onboarding/colors  — color palette options
+  GET /onboarding/stores  — supported stores
+  GET /onboarding/sizes   — available sizes grouped by category (tops, bottoms,
+                            shoes, outerwear); use the slug values when calling
+                            POST /onboarding/complete
+
+Profile completion (auth required):
+  POST /onboarding/complete — persist all onboarding choices in one shot;
+                              idempotent, safe to call multiple times.
+"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -7,9 +20,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infrastructure.database import get_db
-from app.models.onboarding import ColorPalette, Store, Vibe
+from app.models.onboarding import ColorPalette, Size, Store, Vibe
 from app.models.user import User
-from app.schemas.onboarding import ColorPaletteOut, StoreOut, VibeOut
+from app.schemas.onboarding import ColorPaletteOut, SizeCatalogOut, SizeOut, StoreOut, VibeOut
 from app.schemas.user import UserMeOut
 from app.services.jwt import get_current_user_id_verified
 
@@ -19,45 +32,107 @@ router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 # ── Request schema ────────────────────────────────────────────────────────────
 
 class CompleteProfileRequest(BaseModel):
-    # Style preferences (slugs from the catalog endpoints)
-    vibes: list[str] = Field(default_factory=list, description="Selected vibe slugs")
-    preferred_colors: list[str] = Field(default_factory=list, description="Selected color palette slugs")
-    preferred_stores: list[str] = Field(default_factory=list, description="Selected store slugs")
+    """All fields are optional — only supplied fields are updated.
 
-    # Basic profile info collected during onboarding
-    display_name: str | None = None
-    location: str | None = None
-    style_identity: str | None = None
+    Slugs for vibes, preferred_colors, and preferred_stores come from the
+    corresponding catalog endpoints. Slugs for size fields come from
+    GET /onboarding/sizes (e.g. "tops-m", "bottoms-32", "shoes-42").
+    """
 
-    # Sizing
-    tops_size: str | None = None
-    bottoms_size: str | None = None
-    shoes_size: str | None = None
-    outerwear_size: str | None = None
+    # Style preferences (slugs from catalog endpoints)
+    vibes: list[str] = Field(
+        default_factory=list,
+        description="Vibe slugs from GET /onboarding/vibes (e.g. ['streetwear', 'minimal']).",
+    )
+    preferred_colors: list[str] = Field(
+        default_factory=list,
+        description="Color palette slugs from GET /onboarding/colors (e.g. ['earth-tones']).",
+    )
+    preferred_stores: list[str] = Field(
+        default_factory=list,
+        description="Store slugs from GET /onboarding/stores (e.g. ['zara', 'asos']).",
+    )
+
+    # Basic profile info
+    display_name: str | None = Field(None, description="Public display name.")
+    location: str | None = Field(None, description="City or region (used for weather context).")
+    style_identity: str | None = Field(None, description="Free-text style self-description.")
+
+    # Sizing — slugs from GET /onboarding/sizes
+    tops_size: str | None = Field(
+        None,
+        description="Tops size slug from GET /onboarding/sizes (e.g. 'tops-m').",
+    )
+    bottoms_size: str | None = Field(
+        None,
+        description="Bottoms size slug from GET /onboarding/sizes (e.g. 'bottoms-32').",
+    )
+    shoes_size: str | None = Field(
+        None,
+        description="Shoes size slug from GET /onboarding/sizes (e.g. 'shoes-42').",
+    )
+    outerwear_size: str | None = Field(
+        None,
+        description="Outerwear size slug from GET /onboarding/sizes (e.g. 'outerwear-l').",
+    )
 
     # Budget
-    budget_min: int | None = Field(None, ge=0)
-    budget_max: int | None = Field(None, ge=0)
+    budget_min: int | None = Field(None, ge=0, description="Minimum budget in USD.")
+    budget_max: int | None = Field(None, ge=0, description="Maximum budget in USD.")
 
 
 # ── Catalog endpoints ─────────────────────────────────────────────────────────
 
-@router.get("/vibes", response_model=list[VibeOut], summary="List all available style vibes")
+@router.get(
+    "/vibes",
+    response_model=list[VibeOut],
+    summary="List all style vibes",
+    description="Returns every available vibe in alphabetical order. Pass the selected slugs to POST /onboarding/complete.",
+)
 async def list_vibes(db: AsyncSession = Depends(get_db)) -> list[VibeOut]:
     rows = await db.scalars(select(Vibe).order_by(Vibe.label))
     return [VibeOut.model_validate(v) for v in rows.all()]
 
 
-@router.get("/colors", response_model=list[ColorPaletteOut], summary="List all available color palettes")
+@router.get(
+    "/colors",
+    response_model=list[ColorPaletteOut],
+    summary="List all color palettes",
+    description="Returns every color palette with its swatch hex values. Pass the selected slugs to POST /onboarding/complete.",
+)
 async def list_color_palettes(db: AsyncSession = Depends(get_db)) -> list[ColorPaletteOut]:
     rows = await db.scalars(select(ColorPalette).order_by(ColorPalette.label))
     return [ColorPaletteOut.model_validate(p) for p in rows.all()]
 
 
-@router.get("/stores", response_model=list[StoreOut], summary="List all available stores")
+@router.get(
+    "/stores",
+    response_model=list[StoreOut],
+    summary="List all supported stores",
+    description="Returns every store the user can select as a preferred shopping destination. Pass the selected slugs to POST /onboarding/complete.",
+)
 async def list_stores(db: AsyncSession = Depends(get_db)) -> list[StoreOut]:
     rows = await db.scalars(select(Store).order_by(Store.name))
     return [StoreOut.model_validate(s) for s in rows.all()]
+
+
+@router.get(
+    "/sizes",
+    response_model=SizeCatalogOut,
+    summary="List all available sizes grouped by category",
+    description=(
+        "Returns sizes grouped into four categories: **tops** (S–2XL), "
+        "**bottoms** (waist 28–44), **shoes** (8–28), and **outerwear** (S–2XL). "
+        "Use the `slug` values when submitting sizes via POST /onboarding/complete."
+    ),
+)
+async def list_sizes(db: AsyncSession = Depends(get_db)) -> SizeCatalogOut:
+    rows = (await db.scalars(select(Size).order_by(Size.category, Size.sort_order))).all()
+    grouped: dict[str, list[SizeOut]] = {"tops": [], "bottoms": [], "shoes": [], "outerwear": []}
+    for row in rows:
+        if row.category in grouped:
+            grouped[row.category].append(SizeOut.model_validate(row))
+    return SizeCatalogOut(**grouped)
 
 
 # ── Profile completion ────────────────────────────────────────────────────────
@@ -65,7 +140,12 @@ async def list_stores(db: AsyncSession = Depends(get_db)) -> list[StoreOut]:
 @router.post(
     "/complete",
     response_model=UserMeOut,
-    summary="Complete onboarding — save user style preferences and profile info",
+    summary="Complete onboarding",
+    description=(
+        "Persists all onboarding choices for the authenticated user in a single request. "
+        "Only fields explicitly provided are updated — omitted fields are left unchanged. "
+        "Safe to call multiple times (idempotent per field)."
+    ),
 )
 async def complete_onboarding(
     body: CompleteProfileRequest,

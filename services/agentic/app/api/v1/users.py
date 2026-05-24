@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.database import get_db
 from app.infrastructure.storage import upload_file
 from app.models.user import User
-from app.schemas.user import UserMeOut
+from app.schemas.user import UpdateProfileRequest, UserMeOut
 from app.services.jwt import get_current_user_id_verified
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -31,7 +31,8 @@ async def get_me(
     return UserMeOut.from_user(user)
 
 
-@router.patch("/me/avatar", response_model=UserMeOut, summary="Upload or replace the user's profile photo")
+@router.post("/me/avatar", response_model=UserMeOut, summary="Upload or replace the user's profile photo")
+@router.patch("/me/avatar", response_model=UserMeOut, include_in_schema=False)
 async def upload_avatar(
     request: Request,
     image: UploadFile = File(..., description="Profile photo (JPEG, PNG, or WEBP, max 5 MB)"),
@@ -64,5 +65,57 @@ async def upload_avatar(
     await db.commit()
     await db.refresh(user)
 
+    return UserMeOut.from_user(user)
+
+
+@router.patch(
+    "/me",
+    response_model=UserMeOut,
+    summary="Update the authenticated user's profile",
+    description=(
+        "Partially updates the user's profile. Only supplied fields are written — "
+        "omitted fields are left unchanged. Safe to call as many times as needed.\n\n"
+        "Size slugs come from `GET /onboarding/sizes`. "
+        "Vibe, color, and store slugs come from the corresponding onboarding catalog endpoints."
+    ),
+)
+async def update_profile(
+    body: UpdateProfileRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id_verified),
+) -> UserMeOut:
+    user = await db.get(User, current_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    if body.display_name is not None:
+        user.display_name = body.display_name
+    if body.location is not None:
+        user.location = body.location
+    if body.style_identity is not None:
+        user.style_identity = body.style_identity
+    if body.preferred_styles is not None:
+        user.preferred_styles = body.preferred_styles
+    if body.preferred_colors is not None:
+        user.preferred_colors = body.preferred_colors
+    if body.preferred_stores is not None:
+        user.preferred_stores = body.preferred_stores
+    if body.tops_size is not None:
+        user.tops_size = body.tops_size
+    if body.bottoms_size is not None:
+        user.bottoms_size = body.bottoms_size
+    if body.shoes_size is not None:
+        user.shoes_size = body.shoes_size
+    if body.outerwear_size is not None:
+        user.outerwear_size = body.outerwear_size
+    if body.budget_min is not None:
+        user.budget_min = body.budget_min
+    if body.budget_max is not None:
+        user.budget_max = body.budget_max
+    if body.mood is not None:
+        user.mood = body.mood
+
+    await db.commit()
+    await db.refresh(user)
     return UserMeOut.from_user(user)
 

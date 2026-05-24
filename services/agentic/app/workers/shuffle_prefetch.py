@@ -95,27 +95,29 @@ async def prefetch_for_user(user: User, db: AsyncSession, base_url: str) -> None
     - the user has no wardrobe items
     - no item has been updated since the last prefetch (wardrobe unchanged)
     """
+    if not user.avatar_url:
+        return
+
     items_rows = await db.scalars(select(Item).where(Item.user_id == user.id))
     items = list(items_rows.all())
     if not items:
         return
 
-    # Skip if wardrobe is unchanged since last batch
-    latest_item_ts: datetime = max(i.updated_at for i in items)
-    if latest_item_ts.tzinfo is None:
-        latest_item_ts = latest_item_ts.replace(tzinfo=timezone.utc)
-
-    latest_suggestion_ts: datetime | None = await db.scalar(
-        select(func.max(OutfitSuggestion.created_at)).where(
-            OutfitSuggestion.user_id == user.id
-        )
-    )
-    if latest_suggestion_ts is not None:
-        if latest_suggestion_ts.tzinfo is None:
-            latest_suggestion_ts = latest_suggestion_ts.replace(tzinfo=timezone.utc)
-        if latest_item_ts <= latest_suggestion_ts:
-            logger.debug("shuffle_prefetch: skipping user %s — wardrobe unchanged", user.id)
-            return
+    # Skip-if-wardrobe-unchanged rule temporarily disabled — re-enable later.
+    # latest_item_ts: datetime = max(i.updated_at for i in items)
+    # if latest_item_ts.tzinfo is None:
+    #     latest_item_ts = latest_item_ts.replace(tzinfo=timezone.utc)
+    # latest_suggestion_ts: datetime | None = await db.scalar(
+    #     select(func.max(OutfitSuggestion.created_at)).where(
+    #         OutfitSuggestion.user_id == user.id
+    #     )
+    # )
+    # if latest_suggestion_ts is not None:
+    #     if latest_suggestion_ts.tzinfo is None:
+    #         latest_suggestion_ts = latest_suggestion_ts.replace(tzinfo=timezone.utc)
+    #     if latest_item_ts <= latest_suggestion_ts:
+    #         logger.debug("shuffle_prefetch: skipping user %s — wardrobe unchanged", user.id)
+    #         return
 
     season = current_season()
     seasonal_items = filter_by_season(items, season) or items
@@ -205,23 +207,28 @@ async def scheduled_shuffle_prefetch() -> None:
     logger.info("shuffle_prefetch: batch starting")
     base_url = settings.public_url.rstrip("/")
 
+    # Collect IDs with a short-lived session so the connection is released
+    # before the (potentially slow) per-user image-generation work begins.
     async with AsyncSessionLocal() as db:
-        users = (
-            await db.scalars(select(User).where(User.avatar_url.is_not(None)))
-        ).all()
+        user_ids = list(
+            await db.scalars(select(User.id).where(User.avatar_url.is_not(None)))
+        )
 
-        attempted = failed = 0
-        for user in users:
-            try:
+    attempted = failed = 0
+    for user_id in user_ids:
+        try:
+            async with AsyncSessionLocal() as db:
+                user = await db.get(User, user_id)
+                if user is None:
+                    continue
                 await prefetch_for_user(user, db, base_url)
-                attempted += 1
-            except Exception as exc:
-                logger.error(
-                    "shuffle_prefetch: unhandled error for user %s: %s", user.id, exc
-                )
-                failed += 1
-
-        await db.commit()
+                await db.commit()
+            attempted += 1
+        except Exception as exc:
+            logger.error(
+                "shuffle_prefetch: unhandled error for user %s: %s", user_id, exc
+            )
+            failed += 1
 
     logger.info(
         "shuffle_prefetch: batch done — attempted=%d failed=%d", attempted, failed

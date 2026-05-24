@@ -65,7 +65,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(_sync_all_safe())
     # Scrape outfits every 60 minutes
     scheduler.add_job(scheduled_scrape_all_users, "interval", minutes=60, id="outfit_scraper")
-    scheduler.add_job(scheduled_shuffle_prefetch, "interval", minutes=10, id="shuffle_prefetch")
+    scheduler.add_job(scheduled_shuffle_prefetch, "interval", minutes=2, id="shuffle_prefetch")
     scheduler.start()
     app.state.scheduler = scheduler
 

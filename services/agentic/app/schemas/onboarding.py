@@ -30,3 +30,19 @@ class StoreOut(BaseModel):
     website_url: str | None
 
     model_config = {"from_attributes": True}
+
+
+class SizeOut(BaseModel):
+    id: uuid.UUID
+    slug: str
+    label: str
+
+    model_config = {"from_attributes": True}
+
+
+class SizeCatalogOut(BaseModel):
+    """All available sizes grouped by category."""
+    tops: list[SizeOut]
+    bottoms: list[SizeOut]
+    shoes: list[SizeOut]
+    outerwear: list[SizeOut]

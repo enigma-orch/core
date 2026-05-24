@@ -135,6 +135,60 @@ curl http://localhost:8000/api/v1/onboarding/stores
 
 ---
 
+### GET /api/v1/onboarding/sizes
+
+Returns all available sizes grouped by category. Use the `slug` values when submitting sizes via `POST /onboarding/complete`.
+
+**Auth:** None
+
+**curl example**
+```bash
+curl http://localhost:8000/api/v1/onboarding/sizes
+```
+
+**Response — `200 OK`**
+```json
+{
+  "tops": [
+    { "id": "uuid", "slug": "tops-s",   "label": "S"   },
+    { "id": "uuid", "slug": "tops-m",   "label": "M"   },
+    { "id": "uuid", "slug": "tops-l",   "label": "L"   },
+    { "id": "uuid", "slug": "tops-xl",  "label": "XL"  },
+    { "id": "uuid", "slug": "tops-2xl", "label": "2XL" }
+  ],
+  "bottoms": [
+    { "id": "uuid", "slug": "bottoms-28", "label": "28" },
+    { "id": "uuid", "slug": "bottoms-30", "label": "30" },
+    "..."
+  ],
+  "shoes": [
+    { "id": "uuid", "slug": "shoes-8",  "label": "8"  },
+    { "id": "uuid", "slug": "shoes-9",  "label": "9"  },
+    "..."
+  ],
+  "outerwear": [
+    { "id": "uuid", "slug": "outerwear-s",   "label": "S"   },
+    { "id": "uuid", "slug": "outerwear-m",   "label": "M"   },
+    { "id": "uuid", "slug": "outerwear-l",   "label": "L"   },
+    { "id": "uuid", "slug": "outerwear-xl",  "label": "XL"  },
+    { "id": "uuid", "slug": "outerwear-2xl", "label": "2XL" }
+  ]
+}
+```
+
+**Seeded sizes**
+
+| Category | Slugs | Labels |
+|---|---|---|
+| `tops` | `tops-s` · `tops-m` · `tops-l` · `tops-xl` · `tops-2xl` | S · M · L · XL · 2XL |
+| `bottoms` | `bottoms-28` → `bottoms-44` | 28 · 29 · 30 · 31 · 32 · 33 · 34 · 36 · 38 · 40 · 42 · 44 |
+| `shoes` | `shoes-8` → `shoes-28` | 8 through 28 |
+| `outerwear` | `outerwear-s` · `outerwear-m` · `outerwear-l` · `outerwear-xl` · `outerwear-2xl` | S · M · L · XL · 2XL |
+
+Items are returned sorted by `sort_order` within each category (i.e. smallest to largest), so the client can render them in order without additional sorting.
+
+---
+
 ## POST /api/v1/onboarding/complete
 
 Saves all choices made during onboarding to the user's profile in a single call. Every field is optional — only the provided fields are written.
@@ -155,10 +209,10 @@ curl -X POST http://localhost:8000/api/v1/onboarding/complete \
     "display_name": "Alex",
     "location": "London, UK",
     "style_identity": "Quiet streetwear with a clean edge",
-    "tops_size": "M",
-    "bottoms_size": "32",
-    "shoes_size": "42",
-    "outerwear_size": "M",
+    "tops_size": "tops-m",
+    "bottoms_size": "bottoms-32",
+    "shoes_size": "shoes-42",
+    "outerwear_size": "outerwear-l",
     "budget_min": 20,
     "budget_max": 200
   }'
@@ -166,20 +220,22 @@ curl -X POST http://localhost:8000/api/v1/onboarding/complete \
 
 ### Request body
 
-| Field | Type | Description |
-|---|---|---|
-| `vibes` | `string[]` | Slugs from `GET /onboarding/vibes`. Saved to `users.preferred_styles`. |
-| `preferred_colors` | `string[]` | Slugs from `GET /onboarding/colors`. Saved to `users.preferred_colors`. |
-| `preferred_stores` | `string[]` | Slugs from `GET /onboarding/stores`. Saved to `users.preferred_stores`. |
-| `display_name` | `string \| null` | User's display name. |
-| `location` | `string \| null` | City / location string used for weather context. |
-| `style_identity` | `string \| null` | Free-text self-description of style (used in outfit AI prompts). |
-| `tops_size` | `string \| null` | e.g. `"S"`, `"M"`, `"L"`, `"XL"` |
-| `bottoms_size` | `string \| null` | e.g. `"30"`, `"32"` |
-| `shoes_size` | `string \| null` | e.g. `"42"` |
-| `outerwear_size` | `string \| null` | e.g. `"M"` |
-| `budget_min` | `integer \| null` | Minimum budget in the user's currency (whole units). |
-| `budget_max` | `integer \| null` | Maximum budget. |
+All fields are optional. Only supplied fields are written — omitted fields are left unchanged.
+
+| Field | Type | Source | Description |
+|---|---|---|---|
+| `vibes` | `string[]` | `GET /onboarding/vibes` | Vibe slugs. Saved to `users.preferred_styles`. |
+| `preferred_colors` | `string[]` | `GET /onboarding/colors` | Color palette slugs. Saved to `users.preferred_colors`. |
+| `preferred_stores` | `string[]` | `GET /onboarding/stores` | Store slugs. Saved to `users.preferred_stores`. |
+| `display_name` | `string \| null` | — | User's public display name. |
+| `location` | `string \| null` | — | City or region — used for weather context in outfit suggestions. |
+| `style_identity` | `string \| null` | — | Free-text style self-description, injected into outfit AI prompts. |
+| `tops_size` | `string \| null` | `GET /onboarding/sizes` | Size slug from the `tops` group, e.g. `"tops-m"`, `"tops-xl"`. |
+| `bottoms_size` | `string \| null` | `GET /onboarding/sizes` | Size slug from the `bottoms` group, e.g. `"bottoms-32"`, `"bottoms-34"`. |
+| `shoes_size` | `string \| null` | `GET /onboarding/sizes` | Size slug from the `shoes` group, e.g. `"shoes-42"`, `"shoes-44"`. |
+| `outerwear_size` | `string \| null` | `GET /onboarding/sizes` | Size slug from the `outerwear` group, e.g. `"outerwear-l"`. |
+| `budget_min` | `integer \| null` | — | Minimum budget in USD (≥ 0). |
+| `budget_max` | `integer \| null` | — | Maximum budget in USD (≥ 0). |
 
 ### Response — `200 OK`
 
@@ -199,10 +255,10 @@ Returns the full `UserMeOut` object with all profile fields, including the newly
   "preferred_stores": ["zara", "asos", "uniqlo"],
   "budget_min": 20,
   "budget_max": 200,
-  "tops_size": "M",
-  "bottoms_size": "32",
-  "shoes_size": "42",
-  "outerwear_size": "M",
+  "tops_size": "tops-m",
+  "bottoms_size": "bottoms-32",
+  "shoes_size": "shoes-42",
+  "outerwear_size": "outerwear-l",
   "spotify_id": null,
   "has_spotify": false,
   "has_google_calendar": false,

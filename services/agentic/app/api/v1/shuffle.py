@@ -26,13 +26,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.agents.outfit_agent import generate_outfit_image
 from app.infrastructure.database import AsyncSessionLocal, get_db
+from app.infrastructure.storage import upload_file
 from app.models.item import Item
 from app.models.outfit_like import OutfitLike
 from app.models.outfit_suggestion import OutfitSuggestion
@@ -44,6 +46,7 @@ from app.schemas.wardrobe import ItemOut
 from app.services import google_calendar as gcal_svc
 from app.services import spotify as spotify_svc
 from app.services.jwt import get_current_user_id_verified
+from app.services.outfit_preview import build_items_description
 from app.services.shuffle import (
     build_candidates,
     current_season,
@@ -52,6 +55,8 @@ from app.services.shuffle import (
     pick_background_color,
     suggest_song,
 )
+
+_SUGGESTION_TTL_HOURS = 24
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +90,7 @@ async def _spotify_tracks(
 
 @router.get("", response_model=ShuffleResponse)
 async def shuffle_outfits(
+    request: Request,
     occasion: str | None = Query(
         None,
         description="Override the inferred occasion (casual, smart-casual, formal, party, activewear, streetwear).",
@@ -112,21 +118,15 @@ async def shuffle_outfits(
     # suggestions are occasion-neutral.
     if not occasion:
         now = datetime.now(timezone.utc)
-        try:
-            pre_rows = (await db.scalars(
-                select(OutfitSuggestion)
-                .where(
-                    OutfitSuggestion.user_id == user_uuid,
-                    OutfitSuggestion.expires_at > now,
-                )
-                .order_by(OutfitSuggestion.score.desc())
-                .limit(limit)
-            )).all()
-        except Exception as exc:
-            logger.warning("Pre-generated suggestions lookup failed for user %s: %s", user_uuid, exc)
-            await db.rollback()
-            await db.refresh(user)
-            pre_rows = []
+        pre_rows = (await db.scalars(
+            select(OutfitSuggestion)
+            .where(
+                OutfitSuggestion.user_id == user_uuid,
+                OutfitSuggestion.expires_at > now,
+            )
+            .order_by(OutfitSuggestion.score.desc())
+            .limit(limit)
+        )).all()
 
         if pre_rows:
             all_item_ids = [uuid.UUID(i) for row in pre_rows for i in row.item_ids]
@@ -147,9 +147,11 @@ async def shuffle_outfits(
                     score=round(row.score, 4),
                     occasion=row.occasion,
                     season=row.season,
+                    vibe=row.vibe,
+                    mood=row.mood,
                     suggested_song=row.suggested_song,
                     preview_image_url=row.preview_image_url,
-                    background_color=row.background_color or "#FAFAFA",
+                    background_color=row.background_color,
                 )
                 for row in pre_rows
             ]
@@ -211,20 +213,72 @@ async def shuffle_outfits(
         audio_profile=audio_profile,
     )
 
+    base_url = str(request.base_url).rstrip("/")
+    bucket = request.app.state.rustfs_bucket
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=_SUGGESTION_TTL_HOURS)
+
     suggestions = []
+    pending_suggestions: list[OutfitSuggestion] = []
+
     for c in candidates:
         dominant_vibe = next((it.vibe for it in c.items if it.vibe), None)
         dominant_mood = next((it.mood for it in c.items if it.mood), None)
+        bg_color = pick_background_color(dominant_vibe, target_occasion)
+        song = suggest_song(dominant_mood, dominant_vibe, spotify_track_tuples)
+
+        preview_url: str | None = None
+        item_image_urls = [it.clean_image_url for it in c.items if it.clean_image_url]
+
+        if user.avatar_url and item_image_urls:
+            try:
+                description = build_items_description(list(c.items))
+                image_bytes = await generate_outfit_image(
+                    user.avatar_url, item_image_urls, description, bg_color
+                )
+                key = f"wardrobe/shuffle/{uuid.uuid4()}.png"
+                upload_file(key, image_bytes, content_type="image/png", bucket=bucket)
+                preview_url = f"{base_url}/api/v1/wardrobe/files/{key}"
+            except Exception as exc:
+                logger.warning("shuffle live: image generation failed for user %s: %s", user_uuid, exc)
+
+        if user.avatar_url:
+            pending_suggestions.append(OutfitSuggestion(
+                user_id=user_uuid,
+                item_ids=[str(i) for i in c.item_ids],
+                preview_image_url=preview_url,
+                season=season,
+                occasion=target_occasion,
+                score=c.score,
+                vibe=dominant_vibe,
+                mood=dominant_mood,
+                background_color=bg_color,
+                suggested_song=song,
+                expires_at=expires_at,
+            ))
+
         suggestions.append(ShuffleSuggestion(
             item_ids=[uuid.UUID(i) for i in c.item_ids],
             items=[ItemOut.model_validate(it) for it in c.items],
             score=round(c.score, 4),
             occasion=target_occasion,
             season=season,
+            vibe=dominant_vibe,
+            mood=dominant_mood,
             event_context=event_ctx,
-            suggested_song=suggest_song(dominant_mood, dominant_vibe, spotify_track_tuples),
-            background_color=pick_background_color(dominant_vibe, target_occasion),
+            suggested_song=song,
+            preview_image_url=preview_url,
+            background_color=bg_color,
         ))
+
+    if pending_suggestions:
+        try:
+            await db.execute(delete(OutfitSuggestion).where(OutfitSuggestion.user_id == user_uuid))
+            for s in pending_suggestions:
+                db.add(s)
+            await db.flush()
+        except Exception as exc:
+            logger.warning("shuffle live: failed to cache suggestions for user %s: %s", user_uuid, exc)
+            await db.rollback()
 
     return ShuffleResponse(season=season, taste_signal=taste_signal, suggestions=suggestions)
 

@@ -134,13 +134,15 @@ Valid values for the `?occasion=` query param (and what triggers them automatica
   "suggestions": [
     {
       "item_ids": ["uuid-1", "uuid-2", "uuid-3"],
-      "items": [ ...ItemOut ],
+      "items": [ "...ItemOut" ],
       "score": 0.7843,
       "occasion": "casual",
       "season": "spring",
+      "vibe": "minimal",
+      "mood": "calm",
       "suggested_song": "Good Days — SZA",
       "preview_image_url": "https://your-server/api/v1/wardrobe/files/wardrobe/shuffle/abc.png",
-      "background_color": "#3FDAE6",
+      "background_color": "#C4B5A5",
       "event_context": null
     }
   ]
@@ -164,9 +166,11 @@ Valid values for the `?occasion=` query param (and what triggers them automatica
 | `score` | `float` | ❌ | Composite ranking score (0–1, higher is better) |
 | `occasion` | `string` | ✅ | Occasion this suggestion targets, or `null` for occasion-neutral |
 | `season` | `string` | ✅ | Season this suggestion was generated for |
-| `suggested_song` | `string` | ✅ | `"Track — Artist"` matched to the outfit mood (see Song Matching) |
-| `preview_image_url` | `string` | ✅ | URL of the AI-generated try-on image. `null` in the live fallback path or if image generation failed. |
-| `background_color` | `string` | ❌ | Hex color from the design palette chosen for this outfit (see Background Colors) |
+| `vibe` | `string` | ✅ | Dominant vibe of the outfit (derived from the first item with a vibe set), e.g. `"minimal"` · `"bold"` · `"streetwear"` |
+| `mood` | `string` | ✅ | Dominant mood of the outfit (derived from the first item with a mood set), e.g. `"calm"` · `"energetic"` |
+| `suggested_song` | `string` | ✅ | `"Track — Artist"` matched to the outfit mood/vibe (see Song Matching) |
+| `preview_image_url` | `string` | ✅ | URL of the AI-generated try-on image. `null` when the user has no avatar or the suggestion was served before image generation completed. |
+| `background_color` | `string` | ❌ | A hex color picked at random from the curated palette (see Background Colors) |
 | `event_context` | `EventContext` | ✅ | Calendar event that influenced this suggestion (live-fallback path only) |
 
 ### Response strategy
@@ -276,21 +280,24 @@ score = 0.6 × cosine(combo_embedding, taste_vector)
 
 ## Background Colors
 
-Each suggestion carries a `background_color` chosen from this palette based on
-the outfit's vibe and occasion. The intent is a solid studio backdrop for the
-try-on image.
+Each suggestion carries a `background_color` picked **at random** from the curated palette below. The color is chosen fresh on every generation — it is not derived from the outfit's vibe or occasion. The intent is a vivid, varied studio backdrop for the try-on image card.
 
-| Hex | Color | Triggered by |
-|---|---|---|
-| `#DD4982` | Hot pink | `party` · `night out` · `bold` · `feminine` · `glam` |
-| `#A281E9` | Soft purple | `formal` · `wedding` · `elegant` · `dreamy` · `mysterious` |
-| `#3FDAE6` | Bright teal | `casual` · `fresh` · `summer` |
-| `#FFC400` | Golden yellow | `activewear` · `sporty` · `energetic` |
-| `#1E1E1E` | Near black | `streetwear` · `smart-casual` · `edgy` · `dark` |
-| `#FAFAFA` | Off white | Default / minimal / clean |
+| Hex | Name |
+|---|---|
+| `#DD4982` | Bold pink |
+| `#A281E9` | Lavender |
+| `#FFC400` | Golden yellow |
+| `#3FDAE6` | Cyan |
+| `#1E1E1E` | Dark |
+| `#C4B5A5` | Warm taupe |
+| `#A8B5B2` | Muted sage |
+| `#C9A87C` | Warm sand |
+| `#7FB5B0` | Coastal teal |
+| `#8C7B6B` | Old money brown |
+| `#C46BAD` | Y2K pink |
+| `#6B5B4E` | Dark academia |
 
-Priority: **occasion** is checked first, then **vibe** keyword match, then the
-default `#FAFAFA`.
+The value is always set — there is no fallback or default.
 
 ---
 

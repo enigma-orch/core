@@ -32,3 +32,12 @@ class Store(Base, UUIDMixin):
     logo_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     website_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Size(Base, UUIDMixin):
+    __tablename__ = "sizes"
+
+    slug: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    label: Mapped[str] = mapped_column(String(20), nullable=False)
+    sort_order: Mapped[int] = mapped_column(nullable=False, default=0)

@@ -1,7 +1,7 @@
-\restrict V4FRRtzFSfK1dvrKxyullVPhhNhJAqj72gwoyDb9h78mWXptmzyaT0seoNwLHd3
+\restrict dbmate
 
--- Dumped from database version 16.13 (Debian 16.13-1.pgdg12+1)
--- Dumped by pg_dump version 18.1 (Homebrew)
+-- Dumped from database version 16.14 (Debian 16.14-1.pgdg12+1)
+-- Dumped by pg_dump version 18.3
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -79,6 +79,18 @@ CREATE TABLE public.clothing_items (
     times_worn integer DEFAULT 0 NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: color_palettes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.color_palettes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    slug character varying(100) NOT NULL,
+    label character varying(100) NOT NULL,
+    swatches text[] DEFAULT '{}'::text[] NOT NULL
 );
 
 
@@ -215,6 +227,28 @@ CREATE TABLE public.outfit_shares (
 
 
 --
+-- Name: outfit_suggestions; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.outfit_suggestions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    item_ids jsonb NOT NULL,
+    preview_image_url text,
+    season text NOT NULL,
+    occasion text,
+    score double precision NOT NULL,
+    vibe text,
+    mood text,
+    background_color text DEFAULT '#FAFAFA'::text NOT NULL,
+    suggested_song text,
+    expires_at timestamp with time zone NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: outfits; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -275,6 +309,19 @@ CREATE TABLE public.scraped_outfits (
 
 
 --
+-- Name: sizes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.sizes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    slug character varying(50) NOT NULL,
+    category character varying(20) NOT NULL,
+    label character varying(20) NOT NULL,
+    sort_order integer DEFAULT 0 NOT NULL
+);
+
+
+--
 -- Name: social_outbox; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -330,6 +377,20 @@ CREATE TABLE public.spotify_tracks (
 
 
 --
+-- Name: stores; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.stores (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    slug character varying(100) NOT NULL,
+    name character varying(255) NOT NULL,
+    logo_url text,
+    website_url text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: users; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -367,6 +428,20 @@ CREATE TABLE public.users (
 
 
 --
+-- Name: vibes; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.vibes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    slug character varying(100) NOT NULL,
+    label character varying(100) NOT NULL,
+    description text,
+    emoji character varying(10),
+    created_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: social_outbox id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -379,6 +454,22 @@ ALTER TABLE ONLY public.social_outbox ALTER COLUMN id SET DEFAULT nextval('publi
 
 ALTER TABLE ONLY public.clothing_items
     ADD CONSTRAINT clothing_items_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: color_palettes color_palettes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.color_palettes
+    ADD CONSTRAINT color_palettes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: color_palettes color_palettes_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.color_palettes
+    ADD CONSTRAINT color_palettes_slug_key UNIQUE (slug);
 
 
 --
@@ -454,6 +545,14 @@ ALTER TABLE ONLY public.outfit_shares
 
 
 --
+-- Name: outfit_suggestions outfit_suggestions_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outfit_suggestions
+    ADD CONSTRAINT outfit_suggestions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: outfits outfits_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -478,6 +577,22 @@ ALTER TABLE ONLY public.scraped_outfits
 
 
 --
+-- Name: sizes sizes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sizes
+    ADD CONSTRAINT sizes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sizes sizes_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.sizes
+    ADD CONSTRAINT sizes_slug_key UNIQUE (slug);
+
+
+--
 -- Name: social_outbox social_outbox_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -491,6 +606,22 @@ ALTER TABLE ONLY public.social_outbox
 
 ALTER TABLE ONLY public.spotify_tracks
     ADD CONSTRAINT spotify_tracks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: stores stores_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.stores
+    ADD CONSTRAINT stores_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: stores stores_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.stores
+    ADD CONSTRAINT stores_slug_key UNIQUE (slug);
 
 
 --
@@ -547,6 +678,22 @@ ALTER TABLE ONLY public.users
 
 ALTER TABLE ONLY public.users
     ADD CONSTRAINT users_spotify_id_key UNIQUE (spotify_id);
+
+
+--
+-- Name: vibes vibes_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vibes
+    ADD CONSTRAINT vibes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: vibes vibes_slug_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.vibes
+    ADD CONSTRAINT vibes_slug_key UNIQUE (slug);
 
 
 --
@@ -676,6 +823,13 @@ CREATE INDEX idx_outfit_shares_token ON public.outfit_shares USING btree (share_
 
 
 --
+-- Name: idx_outfit_suggestions_user_expires; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_outfit_suggestions_user_expires ON public.outfit_suggestions USING btree (user_id, expires_at);
+
+
+--
 -- Name: idx_outfits_embedding; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -708,6 +862,13 @@ CREATE INDEX idx_outfits_worn_at ON public.outfits USING btree (user_id, worn_at
 --
 
 CREATE INDEX idx_scraped_outfits_user_retail ON public.scraped_outfits USING btree (user_id, created_at DESC) WHERE (source_type = 'retail'::text);
+
+
+--
+-- Name: idx_sizes_category; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX idx_sizes_category ON public.sizes USING btree (category, sort_order);
 
 
 --
@@ -873,6 +1034,14 @@ ALTER TABLE ONLY public.outfit_shares
 
 
 --
+-- Name: outfit_suggestions outfit_suggestions_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.outfit_suggestions
+    ADD CONSTRAINT outfit_suggestions_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: outfits outfits_user_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -900,7 +1069,7 @@ ALTER TABLE ONLY public.spotify_tracks
 -- PostgreSQL database dump complete
 --
 
-\unrestrict V4FRRtzFSfK1dvrKxyullVPhhNhJAqj72gwoyDb9h78mWXptmzyaT0seoNwLHd3
+\unrestrict dbmate
 
 
 --
@@ -918,4 +1087,7 @@ INSERT INTO public.schema_migrations (version) VALUES
     ('20260523200000'),
     ('20260524000001'),
     ('20260524000002'),
-    ('20260524000003');
+    ('20260524000003'),
+    ('20260524000004'),
+    ('20260524000005'),
+    ('20260524000006');

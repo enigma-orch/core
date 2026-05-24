@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import itertools
 import math
+import random
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -220,49 +221,28 @@ def build_candidates(
 
 
 # ── Background color palette ──────────────────────────────────────────────────
-# Each color is associated with a set of occasion/vibe keywords.
-# Priority: occasion → vibe → default.
+# Curated set of colors used for outfit card backgrounds.
+# One is picked at random per suggestion so every card feels distinct.
 
-_OCCASION_BG: dict[str, str] = {
-    "party": "#DD4982",
-    "night out": "#DD4982",
-    "formal": "#A281E9",
-    "wedding": "#A281E9",
-    "activewear": "#FFC400",
-    "casual": "#3FDAE6",
-    "smart-casual": "#1E1E1E",
-    "streetwear": "#1E1E1E",
-}
-
-_VIBE_BG: dict[str, str] = {
-    "bold": "#DD4982",
-    "feminine": "#DD4982",
-    "glam": "#DD4982",
-    "elegant": "#A281E9",
-    "dreamy": "#A281E9",
-    "mysterious": "#A281E9",
-    "fresh": "#3FDAE6",
-    "summer": "#3FDAE6",
-    "sporty": "#FFC400",
-    "energetic": "#FFC400",
-    "edgy": "#1E1E1E",
-    "dark": "#1E1E1E",
-    "minimal": "#FAFAFA",
-    "clean": "#FAFAFA",
-}
+_BG_COLORS: tuple[str, ...] = (
+    "#DD4982",  # bold pink
+    "#A281E9",  # lavender
+    "#FFC400",  # yellow
+    "#3FDAE6",  # cyan
+    "#1E1E1E",  # dark
+    "#C4B5A5",  # warm taupe (minimal)
+    "#A8B5B2",  # muted sage (clean)
+    "#C9A87C",  # warm sand (cottagecore)
+    "#7FB5B0",  # coastal teal
+    "#8C7B6B",  # old money brown
+    "#C46BAD",  # y2k pink
+    "#6B5B4E",  # dark academia
+)
 
 
-def pick_background_color(vibe: str | None, occasion: str | None) -> str:
-    if occasion:
-        occ = occasion.lower()
-        if occ in _OCCASION_BG:
-            return _OCCASION_BG[occ]
-    if vibe:
-        v = vibe.lower()
-        for keyword, color in _VIBE_BG.items():
-            if keyword in v:
-                return color
-    return "#FAFAFA"
+def pick_background_color(vibe: str | None = None, occasion: str | None = None) -> str:
+    """Return a random color from the curated palette."""
+    return random.choice(_BG_COLORS)
 
 
 # ── Song suggestion ───────────────────────────────────────────────────────────

@@ -87,7 +87,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - .env
+      - ../services/agentic/.env
     environment:
       APP_ENV: production
       DATABASE_URL: "postgresql+asyncpg://${POSTGRES_USER:-drip}:${POSTGRES_PASSWORD:-drip}@postgres:5432/${POSTGRES_DB:-drip}"
@@ -110,7 +110,7 @@ services:
     ports:
       - "8080:8080"
     env_file:
-      - .env
+      - ../services/api/.env.example
     environment:
       POSTGRES_DB: "postgres://${POSTGRES_USER:-drip}:${POSTGRES_PASSWORD:-drip}@postgres:5432/${POSTGRES_DB:-drip}?sslmode=disable"
       REDIS_URL: "redis://redis:6379"

@@ -123,7 +123,15 @@ async def sync_user(user: User, session: AsyncSession) -> None:
 
 async def sync_all_users() -> None:
     async with AsyncSessionLocal() as session:
-        users = (await session.scalars(select(User).where(User.spotify_id.is_not(None)))).all()
-        for user in users:
-            await sync_user(user, session)
-        await session.commit()
+        user_ids = list(await session.scalars(select(User.id).where(User.spotify_id.is_not(None))))
+
+    for user_id in user_ids:
+        try:
+            async with AsyncSessionLocal() as session:
+                user = await session.get(User, user_id)
+                if user is None:
+                    continue
+                await sync_user(user, session)
+                await session.commit()
+        except Exception as exc:
+            logger.warning("sync_all_users: unhandled error for user %s: %s", user_id, exc)

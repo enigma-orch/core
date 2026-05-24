@@ -155,5 +155,37 @@ class RefreshResponse(BaseModel):
     expires_in: int = 3600
 
 
+class UpdateProfileRequest(BaseModel):
+    """PATCH /users/me — all fields optional, only supplied fields are written.
+
+    Size slugs come from GET /onboarding/sizes (e.g. "tops-m", "bottoms-32").
+    Vibe, color, and store slugs come from the corresponding onboarding catalog
+    endpoints.
+    """
+
+    # Basic info
+    display_name: str | None = None
+    location: str | None = None
+    style_identity: str | None = None
+
+    # Style preferences (slugs from onboarding catalog endpoints)
+    preferred_styles: list[str] | None = None
+    preferred_colors: list[str] | None = None
+    preferred_stores: list[str] | None = None
+
+    # Sizing (slugs from GET /onboarding/sizes)
+    tops_size: str | None = None
+    bottoms_size: str | None = None
+    shoes_size: str | None = None
+    outerwear_size: str | None = None
+
+    # Budget
+    budget_min: int | None = None
+    budget_max: int | None = None
+
+    # Mood
+    mood: MoodEnum | None = None
+
+
 class UserMoodUpdate(BaseModel):
     mood: MoodEnum

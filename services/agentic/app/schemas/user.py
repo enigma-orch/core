@@ -4,6 +4,7 @@ from datetime import datetime
 from pydantic import BaseModel, computed_field
 
 from app.models.user import MoodEnum
+from app.schemas.onboarding import ColorPaletteOut, StoreOut, VibeOut
 
 
 class UserOut(BaseModel):
@@ -82,6 +83,57 @@ class UserMeOut(BaseModel):
             created_at=user.created_at,
             updated_at=user.updated_at,
         )
+
+
+class AuthMeOut(BaseModel):
+    """Full user context returned by GET /auth/me.
+
+    Extends UserMeOut with resolved vibe, color palette, and store objects
+    (instead of raw slug arrays) so the client never needs a second request
+    to display the user's profile.
+    """
+    # Identity
+    id: uuid.UUID
+    email: str | None
+    display_name: str | None
+    avatar_url: str | None
+
+    # Mood
+    mood: MoodEnum
+
+    # Style preferences — full objects
+    vibes: list[VibeOut]
+    color_palettes: list[ColorPaletteOut]
+    stores: list[StoreOut]
+
+    # Style preferences — raw slugs (kept for completeness)
+    preferred_styles: list[str] | None
+    preferred_colors: list[str] | None
+    preferred_stores: list[str] | None
+
+    # Free-text style fields
+    location: str | None
+    style_identity: str | None
+
+    # Sizing
+    tops_size: str | None
+    bottoms_size: str | None
+    shoes_size: str | None
+    outerwear_size: str | None
+
+    # Budget
+    budget_min: int | None
+    budget_max: int | None
+
+    # Connected integrations (presence only — no tokens exposed)
+    spotify_id: str | None
+    has_spotify: bool
+    has_google_calendar: bool
+    google_calendar_id: str | None
+
+    # Timestamps
+    created_at: datetime
+    updated_at: datetime
 
 
 class TokenResponse(BaseModel):

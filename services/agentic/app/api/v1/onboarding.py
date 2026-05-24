@@ -1,9 +1,6 @@
 """Onboarding endpoints — catalog lookups and profile completion."""
 from __future__ import annotations
 
-import uuid
-from datetime import datetime
-
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -12,41 +9,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.infrastructure.database import get_db
 from app.models.onboarding import ColorPalette, Store, Vibe
 from app.models.user import User
+from app.schemas.onboarding import ColorPaletteOut, StoreOut, VibeOut
 from app.schemas.user import UserMeOut
 from app.services.jwt import get_current_user_id_verified
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
-
-
-# ── Response schemas ──────────────────────────────────────────────────────────
-
-class VibeOut(BaseModel):
-    id: uuid.UUID
-    slug: str
-    label: str
-    description: str | None
-    emoji: str | None
-
-    model_config = {"from_attributes": True}
-
-
-class ColorPaletteOut(BaseModel):
-    id: uuid.UUID
-    slug: str
-    label: str
-    swatches: list[str]
-
-    model_config = {"from_attributes": True}
-
-
-class StoreOut(BaseModel):
-    id: uuid.UUID
-    slug: str
-    name: str
-    logo_url: str | None
-    website_url: str | None
-
-    model_config = {"from_attributes": True}
 
 
 # ── Request schema ────────────────────────────────────────────────────────────

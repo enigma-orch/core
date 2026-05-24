@@ -42,7 +42,11 @@ def _orig_key(data: bytes, filename: str | None) -> str:
     response_model=RemoveBackgroundResponse,
     responses={413: {"model": ErrorResponse}, 415: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-async def remove_background_endpoint(request: Request, image: UploadFile) -> RemoveBackgroundResponse:
+async def remove_background_endpoint(
+    request: Request,
+    image: UploadFile,
+    current_user_id: str = Depends(get_current_user_id),
+) -> RemoveBackgroundResponse:
     data = await image.read()
     if image.content_type not in ALLOWED_CONTENT_TYPES:
         raise HTTPException(
@@ -85,6 +89,7 @@ async def serve_file(key: str, request: Request) -> Response:
 async def upload_photo(
     request: Request,
     image: UploadFile,
+    current_user_id: str = Depends(get_current_user_id),
 ) -> dict:
     """Store an image in RustFS and return its URL. No AI processing."""
     if image.content_type not in ALLOWED_CONTENT_TYPES:

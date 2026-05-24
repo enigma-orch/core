@@ -61,7 +61,7 @@ async def upload_avatar(
         raise HTTPException(status_code=404, detail="User not found")
 
     user.avatar_url = avatar_url
-    await db.flush()
+    await db.commit()
     await db.refresh(user)
 
     return UserMeOut.from_user(user)

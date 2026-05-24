@@ -14,6 +14,7 @@ from app.config import settings
 from app.infrastructure.database import AsyncSessionLocal
 from app.models.scraped_outfit import ScrapedOutfit
 from app.models.user import User
+from app.services.retailers.engine import scrape_all_retailers
 from app.services.weather import Weather, get_weather
 
 logger = logging.getLogger(__name__)
@@ -601,77 +602,114 @@ async def scrape_outfits_for_user(user: User, session: AsyncSession, weather: We
     )
     existing_urls = set(existing.all())
 
-    queries = REDDIT_QUERIES[:MAX_QUERIES]
     total_added = 0
-    c = 0  # counter for alternating items
+    c = 0  # counter for alternating styles
 
-    async with httpx.AsyncClient(timeout=15) as client:
-        for query in queries:
-            if total_added >= BATCH_TARGET:
-                break
+    # ── Pass 1: scrape 40 retail stores ──────────────────────────────────────
+    try:
+        retail_items = await scrape_all_retailers(
+            weather=weather,
+            gender=GENDER,
+            limit_per_store=5,
+        )
+        logger.info("Retail scrape returned %d items from stores", len(retail_items))
+    except Exception as exc:
+        logger.warning("scrape_all_retailers failed: %s", exc)
+        retail_items = []
 
-            items = await _search_all_sources(query, client)
-            if not items:
-                continue
+    for item in retail_items:
+        if total_added >= BATCH_TARGET:
+            break
+        image_url = _normalize_url(item.get("image_url", ""))
+        if not image_url or image_url in existing_urls:
+            continue
+        style = styles[c % len(styles)]
+        c += 1
+        outfit = ScrapedOutfit(
+            user_id=user.id,
+            image_url=image_url,
+            title=item.get("title", "Outfit")[:200],
+            brand=item.get("brand"),
+            price=item.get("price"),
+            source_url=item.get("source_url", ""),
+            source_domain=item.get("source_domain"),
+            category=item.get("category", style.lower()),
+            tags=item.get("tags", [style]),
+            style_tags=[style],
+            weather_tags=weather.tags,
+            meta_data={"source": "retail", "season": _current_season()},
+        )
+        session.add(outfit)
+        existing_urls.add(image_url)
+        total_added += 1
 
-            for item in items:
+    # ── Pass 2: supplement with Reddit / Google / Bing if still under target ──
+    if total_added < BATCH_TARGET:
+        queries = REDDIT_QUERIES[:MAX_QUERIES]
+        async with httpx.AsyncClient(timeout=15) as client:
+            for query in queries:
                 if total_added >= BATCH_TARGET:
                     break
 
-                image_url = _normalize_url(item.get("image", "") or item.get("link", ""))
-                if not image_url:
+                items = await _search_all_sources(query, client)
+                if not items:
                     continue
 
-                if image_url in existing_urls:
-                    continue
+                for item in items:
+                    if total_added >= BATCH_TARGET:
+                        break
 
-                title = _clean_title(item.get("title", "") or query)
-                snippet = item.get("snippet", "") or ""
+                    image_url = _normalize_url(item.get("image", "") or item.get("link", ""))
+                    if not image_url or image_url in existing_urls:
+                        continue
 
-                if not _is_men_fashion(title, snippet):
-                    continue
+                    title = _clean_title(item.get("title", "") or query)
+                    snippet = item.get("snippet", "") or ""
 
-                if not await _validate_image_url(image_url, client):
-                    continue
+                    if not _is_men_fashion(title, snippet):
+                        continue
 
-                style = styles[c % len(styles)]
-                c += 1
+                    if not await _validate_image_url(image_url, client):
+                        continue
 
-                brand = item.get("brand") or None
-                if not brand and "source_domain" in item:
-                    brand = _extract_brand_from_domain(item["source_domain"])
-                price = item.get("price") or _parse_price(title)
-                ups = item.get("ups")
-                subreddit = item.get("subreddit")
-                source_url = item.get("source_url", "")
+                    style = styles[c % len(styles)]
+                    c += 1
 
-                meta_data = {
-                    "query": query,
-                    "source": item.get("source", "scrape"),
-                    "season": _current_season(),
-                }
-                if ups is not None:
-                    meta_data["ups"] = ups
-                if subreddit:
-                    meta_data["subreddit"] = subreddit
+                    brand = item.get("brand") or None
+                    if not brand and "source_domain" in item:
+                        brand = _extract_brand_from_domain(item["source_domain"])
+                    price = item.get("price") or _parse_price(title)
+                    ups = item.get("ups")
+                    subreddit = item.get("subreddit")
+                    source_url = item.get("source_url", "")
 
-                outfit = ScrapedOutfit(
-                    user_id=user.id,
-                    image_url=image_url,
-                    title=title,
-                    brand=brand,
-                    price=price,
-                    source_url=source_url or snippet,
-                    source_domain=None,
-                    category=style.lower(),
-                    tags=[style],
-                    style_tags=[style],
-                    weather_tags=weather.tags,
-                    meta_data=meta_data,
-                )
-                session.add(outfit)
-                existing_urls.add(image_url)
-                total_added += 1
+                    meta_data: dict = {
+                        "query": query,
+                        "source": item.get("source", "scrape"),
+                        "season": _current_season(),
+                    }
+                    if ups is not None:
+                        meta_data["ups"] = ups
+                    if subreddit:
+                        meta_data["subreddit"] = subreddit
+
+                    outfit = ScrapedOutfit(
+                        user_id=user.id,
+                        image_url=image_url,
+                        title=title,
+                        brand=brand,
+                        price=price,
+                        source_url=source_url or snippet,
+                        source_domain=None,
+                        category=style.lower(),
+                        tags=[style],
+                        style_tags=[style],
+                        weather_tags=weather.tags,
+                        meta_data=meta_data,
+                    )
+                    session.add(outfit)
+                    existing_urls.add(image_url)
+                    total_added += 1
 
     if total_added == 0:
         logger.info("No outfits found from web scraping, falling back to dev outfits")

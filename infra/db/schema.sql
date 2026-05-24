@@ -1,7 +1,7 @@
-\restrict dbmate
+\restrict V4FRRtzFSfK1dvrKxyullVPhhNhJAqj72gwoyDb9h78mWXptmzyaT0seoNwLHd3
 
--- Dumped from database version 16.14 (Debian 16.14-1.pgdg12+1)
--- Dumped by pg_dump version 18.3
+-- Dumped from database version 16.13 (Debian 16.13-1.pgdg12+1)
+-- Dumped by pg_dump version 18.1 (Homebrew)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -900,7 +900,7 @@ ALTER TABLE ONLY public.spotify_tracks
 -- PostgreSQL database dump complete
 --
 
-\unrestrict dbmate
+\unrestrict V4FRRtzFSfK1dvrKxyullVPhhNhJAqj72gwoyDb9h78mWXptmzyaT0seoNwLHd3
 
 
 --

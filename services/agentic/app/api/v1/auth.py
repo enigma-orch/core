@@ -15,9 +15,11 @@ logger = logging.getLogger("spotify")
 
 from app.config import settings
 from app.infrastructure.database import get_db
+from app.models.onboarding import ColorPalette, Store, Vibe
 from app.models.user import User
 from app.repositories.clothing import ClothingItemRepository
-from app.schemas.user import RefreshRequest, RefreshResponse, TokenResponse, UserOut
+from app.schemas.onboarding import ColorPaletteOut, StoreOut, VibeOut
+from app.schemas.user import AuthMeOut, RefreshRequest, RefreshResponse, TokenResponse, UserOut
 from app.services import google_calendar as gcal_svc
 from app.services import spotify as spotify_svc
 from app.services.jwt import (
@@ -108,6 +110,72 @@ async def logout(
         user.refresh_token_hash = None
         user.refresh_token_expires_at = None
         await db.flush()
+
+
+@router.get("/me", response_model=AuthMeOut, summary="Get the authenticated user's full context")
+async def get_me(
+    db: AsyncSession = Depends(get_db),
+    current_user_id: str = Depends(get_current_user_id_verified),
+) -> AuthMeOut:
+    """
+    Returns the complete user profile including resolved vibe, color palette,
+    and store objects. Use this on app launch to hydrate the full user state
+    in a single request.
+    """
+    user = await db.get(User, current_user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    slugs_vibes = user.preferred_styles or []
+    slugs_colors = user.preferred_colors or []
+    slugs_stores = user.preferred_stores or []
+
+    vibes: list[VibeOut] = []
+    color_palettes: list[ColorPaletteOut] = []
+    stores: list[StoreOut] = []
+
+    if slugs_vibes:
+        rows = await db.scalars(select(Vibe).where(Vibe.slug.in_(slugs_vibes)))
+        vibe_map = {v.slug: v for v in rows.all()}
+        vibes = [VibeOut.model_validate(vibe_map[s]) for s in slugs_vibes if s in vibe_map]
+
+    if slugs_colors:
+        rows = await db.scalars(select(ColorPalette).where(ColorPalette.slug.in_(slugs_colors)))
+        palette_map = {p.slug: p for p in rows.all()}
+        color_palettes = [ColorPaletteOut.model_validate(palette_map[s]) for s in slugs_colors if s in palette_map]
+
+    if slugs_stores:
+        rows = await db.scalars(select(Store).where(Store.slug.in_(slugs_stores)))
+        store_map = {s.slug: s for s in rows.all()}
+        stores = [StoreOut.model_validate(store_map[s]) for s in slugs_stores if s in store_map]
+
+    return AuthMeOut(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        avatar_url=user.avatar_url,
+        mood=user.mood,
+        vibes=vibes,
+        color_palettes=color_palettes,
+        stores=stores,
+        preferred_styles=user.preferred_styles,
+        preferred_colors=user.preferred_colors,
+        preferred_stores=user.preferred_stores,
+        location=user.location,
+        style_identity=user.style_identity,
+        tops_size=user.tops_size,
+        bottoms_size=user.bottoms_size,
+        shoes_size=user.shoes_size,
+        outerwear_size=user.outerwear_size,
+        budget_min=user.budget_min,
+        budget_max=user.budget_max,
+        spotify_id=user.spotify_id,
+        has_spotify=user.spotify_id is not None,
+        has_google_calendar=user.google_access_token is not None,
+        google_calendar_id=user.google_calendar_id,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+    )
 
 
 @router.post("/guest", response_model=TokenResponse, summary="Create a guest session")

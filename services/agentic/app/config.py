@@ -88,44 +88,65 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_required(self):
-        """Fail fast when required env is missing.
+        """Fail fast when any required env var is missing or still set to a placeholder.
 
-        Dev and test environments stay permissive so the app and pytest can
-        boot without a full secret bundle (tests typically mock external
-        services). Outside development, the validator refuses to start:
+        These checks run in every environment — development included — because
+        missing keys cause silent runtime failures (image generation silently
+        skipped, tokens stored unencrypted, etc.) that are much harder to debug
+        than a clear startup error.
 
-        - SECRET_KEY must not be the default — JWTs would be forgeable.
-        - TOKEN_ENCRYPTION_KEY must be a real Fernet key — refresh tokens
-          and OAuth tokens are written through EncryptedString.
-        - DATABASE_URL must not be the local dev default.
-        - QWEN_API_KEY must be set — every upload/compose call needs it.
-        - CORS_ORIGINS must be narrowed; `*` is dev-only.
+        Required in all environments:
+          - SECRET_KEY          — JWTs are forgeable with the default value.
+          - TOKEN_ENCRYPTION_KEY — OAuth / refresh tokens are written via
+                                   EncryptedString; missing = plaintext in DB.
+          - DATABASE_URL        — no DB, no app.
+          - QWEN_API_KEY        — every wardrobe upload and enrichment call.
+          - QWEN_WAN_API_KEY    — shuffle preview image generation.
+          - REMOVE_BG_API_KEY   — background removal on every uploaded item.
+          - AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY — RustFS file storage.
+
+        Required only outside development:
+          - CORS_ORIGINS must not be the wildcard `*`.
         """
-        env = self.app_env.lower()
-        if env in ("development", "dev", "test", "testing"):
-            return self
-
         missing: list[str] = []
+
+        # ── Always required ───────────────────────────────────────────────────
         if _is_unset(self.secret_key):
-            missing.append("SECRET_KEY (must be a strong random value, not the default)")
+            missing.append(
+                "SECRET_KEY — must be a strong random string "
+                "(e.g. `openssl rand -hex 32`)"
+            )
         if _is_unset(self.token_encryption_key):
             missing.append(
-                "TOKEN_ENCRYPTION_KEY (Fernet key — generate with "
-                "`python -c \"from cryptography.fernet import Fernet; "
-                "print(Fernet.generate_key().decode())\"`)"
+                "TOKEN_ENCRYPTION_KEY — Fernet key for encrypting OAuth tokens; "
+                "generate with: python -c \"from cryptography.fernet import Fernet; "
+                "print(Fernet.generate_key().decode())\""
             )
-        if not self.database_url or self.database_url == _DEFAULT_DB_URL:
-            missing.append("DATABASE_URL (still pointing at the local dev default)")
+        if not self.database_url:
+            missing.append("DATABASE_URL")
         if _is_unset(self.qwen_api_key):
-            missing.append("QWEN_API_KEY")
-        if self.cors_origins.strip() == "*":
-            missing.append("CORS_ORIGINS (refuse to run with wildcard outside development)")
+            missing.append("QWEN_API_KEY — required for wardrobe item detection and enrichment")
+        if _is_unset(self.qwen_wan_api_key):
+            missing.append("QWEN_WAN_API_KEY — required for shuffle outfit preview image generation")
+        if _is_unset(self.remove_bg_api_key):
+            missing.append("REMOVE_BG_API_KEY — required for clothing background removal on upload")
+        if _is_unset(self.aws_access_key_id):
+            missing.append("AWS_ACCESS_KEY_ID — required for RustFS / S3 file storage")
+        if _is_unset(self.aws_secret_access_key):
+            missing.append("AWS_SECRET_ACCESS_KEY — required for RustFS / S3 file storage")
+
+        # ── Production only ───────────────────────────────────────────────────
+        env = self.app_env.lower()
+        if env not in ("development", "dev", "test", "testing"):
+            if self.cors_origins.strip() == "*":
+                missing.append("CORS_ORIGINS — wildcard `*` is not allowed outside development")
 
         if missing:
             joined = "\n  - ".join(missing)
             raise RuntimeError(
-                "Refusing to start — required configuration is missing:\n  - "
-                f"{joined}\n\nSee .env.example for the full list."
+                f"Cannot start — {len(missing)} required environment variable(s) are missing "
+                f"or still set to placeholder values:\n\n  - {joined}\n\n"
+                "Copy .env.example to .env and fill in the missing values."
             )
         return self
 

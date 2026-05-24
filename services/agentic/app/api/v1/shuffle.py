@@ -112,15 +112,21 @@ async def shuffle_outfits(
     # suggestions are occasion-neutral.
     if not occasion:
         now = datetime.now(timezone.utc)
-        pre_rows = (await db.scalars(
-            select(OutfitSuggestion)
-            .where(
-                OutfitSuggestion.user_id == user_uuid,
-                OutfitSuggestion.expires_at > now,
-            )
-            .order_by(OutfitSuggestion.score.desc())
-            .limit(limit)
-        )).all()
+        try:
+            pre_rows = (await db.scalars(
+                select(OutfitSuggestion)
+                .where(
+                    OutfitSuggestion.user_id == user_uuid,
+                    OutfitSuggestion.expires_at > now,
+                )
+                .order_by(OutfitSuggestion.score.desc())
+                .limit(limit)
+            )).all()
+        except Exception as exc:
+            logger.warning("Pre-generated suggestions lookup failed for user %s: %s", user_uuid, exc)
+            await db.rollback()
+            await db.refresh(user)
+            pre_rows = []
 
         if pre_rows:
             all_item_ids = [uuid.UUID(i) for row in pre_rows for i in row.item_ids]
